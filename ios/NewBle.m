@@ -7,6 +7,15 @@
 //
 
 #import "NewBle.h"
+
+// Constants previously defined in the demo app's PrefixHeader.pch
+#define SERVICE   @"FFF0"
+#define SEND_CHAR @"FFF6"
+#define REC_CHAR  @"FFF7"
+#define UserDefaults [NSUserDefaults standardUserDefaults]
+// writeLogs was a file-logging macro — replaced with NSLog for standalone use
+#define writeLogs(logs, fileName) NSLog(@"[BleSDK] %@", logs)
+
 @interface NewBle()<CBCentralManagerDelegate,CBPeripheralDelegate>
 {
     
