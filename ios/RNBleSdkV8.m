@@ -98,9 +98,10 @@ RCT_EXPORT_METHOD(startScan:(nullable NSString *)nameFilter) {
     _nameFilter = (nameFilter && nameFilter.length > 0) ? nameFilter : nil;
     _pendingConnectUUID = nil;
     dispatch_async(dispatch_get_main_queue(), ^{
-        [[NewBle sharedManager] SetUpCentralManager];
+        // SetUpCentralManager is guarded — safe to call; creates manager only once
         [NewBle sharedManager].delegate = self;
-        // nil = no service filter → discovers every BLE device in range
+        [[NewBle sharedManager] SetUpCentralManager];
+        // startScanningWithServices defers automatically if not yet poweredOn
         [[NewBle sharedManager] startScanningWithServices:nil];
     });
 }
@@ -270,6 +271,10 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
 
 - (void)ConnectSuccessfully {
     // Intentionally empty – wait for EnableCommunicate before notifying JS
+}
+
+- (void)CentralManagerPoweredOn {
+    [self sendEventWithName:@"BlePowerStateChanged" body:@{ @"state": @"poweredOn" }];
 }
 
 - (void)EnableCommunicate {

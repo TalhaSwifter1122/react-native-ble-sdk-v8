@@ -18,7 +18,10 @@
 
 @interface NewBle()<CBCentralManagerDelegate,CBPeripheralDelegate>
 {
-    
+    // Services to scan for once the manager reaches poweredOn state.
+    // nil means scan for all devices. NSNull means no pending scan.
+    NSArray *_pendingScanServices;
+    BOOL     _hasPendingScan;
 }
 @end
 @implementation NewBle
@@ -35,7 +38,13 @@
 //设置为主设备
 - (void)SetUpCentralManager
 {
-    CentralManage = [[CBCentralManager alloc] initWithDelegate:self queue:nil];
+    // Guard: only create the manager once. Creating multiple instances causes
+    // "API MISUSE: can only accept this command while in the powered on state".
+    if (CentralManage == nil) {
+        CentralManage = [[CBCentralManager alloc] initWithDelegate:self queue:nil];
+    } else {
+        CentralManage.delegate = self;
+    }
 }
 //设置为从设备
 - (void)SetUpPeripheralManager
@@ -64,7 +73,15 @@
 - (void)startScanningWithServices:(nullable NSArray<CBUUID *> *)serviceUUIDs
 {
     CentralManage.delegate = self;
-    [CentralManage scanForPeripheralsWithServices:serviceUUIDs options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@YES}];
+    if (CentralManage.state == CBManagerStatePoweredOn) {
+        // Manager is ready — scan immediately
+        [CentralManage scanForPeripheralsWithServices:serviceUUIDs
+                                              options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@YES}];
+    } else {
+        // Manager is still initialising — store intent and scan once powered on
+        _pendingScanServices = serviceUUIDs;
+        _hasPendingScan = YES;
+    }
 }
 
 
@@ -267,6 +284,19 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
 #pragma mark CBCentralManagerDelegate
 - (void)centralManagerDidUpdateState:(nonnull CBCentralManager *)central {
     NSLog(@"Status of CoreBluetooth central manager changed %@",[self centralManagerStateToString:central.state]);
+    if (central.state == CBManagerStatePoweredOn) {
+        // Notify the delegate (RNBleSdkV8) that BLE is ready
+        if ([self.delegate respondsToSelector:@selector(CentralManagerPoweredOn)]) {
+            [self.delegate CentralManagerPoweredOn];
+        }
+        // Execute any scan that was requested before the manager was ready
+        if (_hasPendingScan) {
+            _hasPendingScan = NO;
+            [central scanForPeripheralsWithServices:_pendingScanServices
+                                            options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@YES}];
+            _pendingScanServices = nil;
+        }
+    }
 }
 
 - (void)centralManager:(CBCentralManager *)central willRestoreState:(NSDictionary<NSString *, id> *)dict
