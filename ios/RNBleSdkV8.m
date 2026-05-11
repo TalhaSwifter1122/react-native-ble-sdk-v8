@@ -62,7 +62,20 @@ RCT_EXPORT_MODULE(RNBleSdkV8);
     ];
 }
 
-+ (BOOL)requiresMainQueueSetup { return NO; }
++ (BOOL)requiresMainQueueSetup { return YES; }
+
+// Initialize CBCentralManager at module-load time, exactly like the vendor
+// demo app does in AppDelegate. This gives the manager enough time to reach
+// the poweredOn state before the user ever calls startScan from JS.
+- (instancetype)init {
+    if (self = [super init]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NewBle sharedManager].delegate = self;
+            [[NewBle sharedManager] SetUpCentralManager];
+        });
+    }
+    return self;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 #pragma mark - Transform config
