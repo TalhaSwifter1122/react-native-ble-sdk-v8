@@ -1,0 +1,4 @@
+# Keep everything that the RN project needs.
+# Explicitly do NOT ignore the .a binary or ios/ folder.
+README.md
+.DS_Store

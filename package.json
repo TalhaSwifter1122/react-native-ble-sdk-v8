@@ -1,0 +1,32 @@
+{
+    "name": "react-native-ble-sdk-v8",
+    "version": "1.0.0",
+    "description": "React Native wrapper for BleSDK V8 wearable device",
+    "main": "index.js",
+    "files": [
+        "index.js",
+        "src/",
+        "ios/",
+        "react-native-ble-sdk-v8.podspec"
+    ],
+    "scripts": {
+        "test": "echo \"No tests configured\""
+    },
+    "keywords": [
+        "react-native",
+        "ble",
+        "bluetooth",
+        "wearable",
+        "ios"
+    ],
+    "author": "",
+    "license": "MIT",
+    "react-native": "index.js",
+    "source": "index.js",
+    "peerDependencies": {
+        "react-native": ">=0.60.0"
+    },
+    "devDependencies": {
+        "react-native": ">=0.60.0"
+    }
+}
