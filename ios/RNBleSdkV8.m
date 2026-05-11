@@ -24,9 +24,14 @@
 
 #import "RNBleSdkV8.h"
 
-// BLE UUIDs (must match the V8 device firmware)
+// BLE UUIDs for the V8/JCVital device
 static NSString *const kServiceUUID   = @"FFF0";
 static NSString *const kSendCharUUID  = @"FFF6";
+
+// Optional name filter set from JS — nil means accept all devices
+static NSString *_nameFilter = nil;
+// UUID of the device the JS layer wants to auto-connect to after scan
+static NSString *_pendingConnectUUID = nil;
 
 // ─────────────────────────────────────────────────────────────────────────────
 @implementation RNBleSdkV8
@@ -80,12 +85,23 @@ RCT_EXPORT_METHOD(setTransformConfig:(NSDictionary *)config) {
 // ─────────────────────────────────────────────────────────────────────────────
 #pragma mark - Scanning
 
-RCT_EXPORT_METHOD(startScan) {
+/**
+ * startScan — discovers ALL nearby BLE devices (no service-UUID filter).
+ * The JCVital / V8 band does not broadcast its service UUID in advertisement
+ * packets, so filtering by UUID hides it. We scan with nil and let JS filter
+ * by device name if needed.
+ *
+ * Optional JS parameter: nameFilter (e.g. "JCVital" or "V8")
+ * Only devices whose name CONTAINS the filter string are emitted to JS.
+ */
+RCT_EXPORT_METHOD(startScan:(nullable NSString *)nameFilter) {
+    _nameFilter = (nameFilter && nameFilter.length > 0) ? nameFilter : nil;
+    _pendingConnectUUID = nil;
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NewBle sharedManager] SetUpCentralManager];
         [NewBle sharedManager].delegate = self;
-        [[NewBle sharedManager] startScanningWithServices:
-            @[[CBUUID UUIDWithString:kServiceUUID]]];
+        // nil = no service filter → discovers every BLE device in range
+        [[NewBle sharedManager] startScanningWithServices:nil];
     });
 }
 
@@ -101,20 +117,21 @@ RCT_EXPORT_METHOD(stopScan) {
 RCT_EXPORT_METHOD(connect:(NSString *)peripheralUUID) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [NewBle sharedManager].delegate = self;
-        // Retrieve already-known peripherals then connect
-        NSArray *peripherals = [[NewBle sharedManager]
-            retrieveConnectedPeripheralsWithServices:
-                @[[CBUUID UUIDWithString:kServiceUUID]]];
-        for (CBPeripheral *p in peripherals) {
-            if ([p.identifier.UUIDString isEqualToString:peripheralUUID]) {
-                [[NewBle sharedManager] connectDevice:p];
+
+        // 1. Check if the peripheral is already known to CoreBluetooth
+        NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:peripheralUUID];
+        if (uuid) {
+            NSArray *known = [[NewBle sharedManager].CentralManage
+                retrievePeripheralsWithIdentifiers:@[uuid]];
+            if (known.count > 0) {
+                [[NewBle sharedManager] connectDevice:known.firstObject];
                 return;
             }
         }
-        // Device not in connected list — user must have obtained it from scan
-        // Fall back to scanning and auto-connecting when found
-        [[NewBle sharedManager] startScanningWithServices:
-            @[[CBUUID UUIDWithString:kServiceUUID]]];
+
+        // 2. Not yet known — start a nil-filter scan and auto-connect when found
+        _pendingConnectUUID = peripheralUUID;
+        [[NewBle sharedManager] startScanningWithServices:nil];
     });
 }
 
@@ -277,10 +294,34 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
 - (void)scanWithPeripheral:(CBPeripheral *)peripheral
          advertisementData:(NSDictionary<NSString *, id> *)advertisementData
                       RSSI:(NSNumber *)RSSI {
+
+    NSString *name = peripheral.name
+        ?: advertisementData[CBAdvertisementDataLocalNameKey]
+        ?: @"";
+
+    // Apply name filter if set from JS
+    if (_nameFilter) {
+        NSRange r = [name rangeOfString:_nameFilter
+                                options:NSCaseInsensitiveSearch];
+        if (r.location == NSNotFound) return; // skip non-matching device
+    }
+
+    // Auto-connect if JS called connect() before the device was found
+    if (_pendingConnectUUID &&
+        [peripheral.identifier.UUIDString isEqualToString:_pendingConnectUUID]) {
+        _pendingConnectUUID = nil;
+        [[NewBle sharedManager] connectDevice:peripheral];
+        return;
+    }
+
     [self sendEventWithName:@"BleDeviceFound" body:@{
         @"uuid":  peripheral.identifier.UUIDString,
-        @"name":  peripheral.name ?: @"",
+        @"name":  name,
         @"rssi":  RSSI,
+        @"advertisementData": @{
+            @"isConnectable": advertisementData[CBAdvertisementDataIsConnectable] ?: @NO,
+            @"txPowerLevel":  advertisementData[CBAdvertisementDataTxPowerLevelKey] ?: @0,
+        },
     }];
 }
 

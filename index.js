@@ -66,11 +66,16 @@ export function addBleListener(eventName, callback) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Start scanning for V8 BLE peripherals.
- * Listen for BleEvents.DEVICE_FOUND to receive discovered devices.
+ * Start scanning for BLE peripherals.
+ * Scans for ALL nearby BLE devices — no service UUID filter — so devices
+ * like JCVital / V8 bands that don't advertise their service UUID are visible.
+ *
+ * @param {string} [nameFilter]  Optional: only emit devices whose name contains
+ *                               this string (case-insensitive). e.g. "JCVital"
+ *                               Leave empty to see every BLE device in range.
  */
-export function startScan() {
-    RNBleSdkV8.startScan();
+export function startScan(nameFilter = '') {
+    RNBleSdkV8.startScan(nameFilter || null);
 }
 
 /** Stop an ongoing BLE scan. */
