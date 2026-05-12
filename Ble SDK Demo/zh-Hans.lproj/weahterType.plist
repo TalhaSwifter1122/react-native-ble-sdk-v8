@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Weather</key>
+	<array>
+		<string>晴</string>
+		<string>晴</string>
+		<string>晴</string>
+		<string>晴</string>
+		<string>多云</string>
+		<string>晴间多云</string>
+		<string>晴间多云</string>
+		<string>大部多云</string>
+		<string>大部多云</string>
+		<string>阴</string>
+		<string>阵雨</string>
+		<string>雷阵雨</string>
+		<string>雷阵雨伴有冰雹</string>
+		<string>小雨</string>
+		<string>中雨</string>
+		<string>大雨</string>
+		<string>暴雨</string>
+		<string>大暴雨</string>
+		<string>特大暴雨</string>
+		<string>冻雨</string>
+		<string>雨夹雪</string>
+		<string>阵雪</string>
+		<string>小雪</string>
+		<string>中雪</string>
+		<string>大雪</string>
+		<string>暴雪</string>
+		<string>浮尘</string>
+		<string>扬沙</string>
+		<string>沙尘暴</string>
+		<string>强沙尘暴</string>
+		<string>雾</string>
+		<string>霾</string>
+		<string>风</string>
+		<string>大风</string>
+		<string>飓风</string>
+		<string>热带风暴</string>
+		<string>龙卷风</string>
+		<string>冷</string>
+		<string>热</string>
+		<string>未知</string>
+	</array>
+</dict>
+</plist>

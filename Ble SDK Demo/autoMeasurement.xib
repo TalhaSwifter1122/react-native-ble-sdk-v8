@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="21507" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina4_7" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="21505"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="System colors in document resources" minToolsVersion="11.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner" customClass="autoMeasurement">
+            <connections>
+                <outlet property="btnGetAutoMeasurement" destination="6Ty-Cm-Brh" id="mV1-fq-qEX"/>
+                <outlet property="btnSetAutoMeasurement" destination="Myl-cQ-Yv3" id="DPH-De-Bh2"/>
+                <outlet property="datePickerEndTime" destination="B5e-iN-N9D" id="TaJ-LD-yFo"/>
+                <outlet property="datePickerStartTime" destination="Dw0-dy-rkM" id="2dY-YU-6TU"/>
+                <outlet property="labDataType" destination="F4c-d0-z8V" id="06d-Wi-g4v"/>
+                <outlet property="labEndTime" destination="wK0-XF-fYt" id="jm5-j9-Dc5"/>
+                <outlet property="labIntervalTime" destination="ReY-DU-oXM" id="iYt-kd-ybK"/>
+                <outlet property="labStartTime" destination="SVD-Q7-IJ7" id="mbm-hl-4LZ"/>
+                <outlet property="labTitle" destination="Xvx-VX-E6x" id="sXM-NM-QBZ"/>
+                <outlet property="myScrollView" destination="aOB-rR-N0F" id="xD2-XM-AZ0"/>
+                <outlet property="myTableView" destination="vHI-Cb-1H0" id="boQ-Uo-voT"/>
+                <outlet property="pickerIntervalTime" destination="5nt-KO-U6g" id="5dJ-aW-Nnb"/>
+                <outlet property="segDataType" destination="Fo7-Gu-evD" id="HN1-8c-94r"/>
+                <outlet property="segSwitch" destination="Yg7-3O-1e7" id="nGx-kc-JQk"/>
+                <outlet property="view" destination="i5M-Pr-FkT" id="sfx-zR-JGt"/>
+            </connections>
+        </placeholder>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view clearsContextBeforeDrawing="NO" contentMode="scaleToFill" id="i5M-Pr-FkT">
+            <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="VNi-bi-gfS">
+                    <rect key="frame" x="0.0" y="40" width="100" height="40"/>
+                    <color key="backgroundColor" white="0.66666666669999997" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <constraints>
+                        <constraint firstAttribute="width" secondItem="VNi-bi-gfS" secondAttribute="height" multiplier="5:2" id="S0y-c6-0Ev"/>
+                    </constraints>
+                    <inset key="imageEdgeInsets" minX="0.0" minY="0.0" maxX="2.2250738585072014e-308" maxY="0.0"/>
+                    <state key="normal" title="Back">
+                        <color key="titleColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    </state>
+                    <connections>
+                        <action selector="back:" destination="-1" eventType="touchUpInside" id="LBQ-ZR-dIh"/>
+                    </connections>
+                </button>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="自动测量" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Xvx-VX-E6x">
+                    <rect key="frame" x="92" y="45" width="191" height="30"/>
+                    <constraints>
+                        <constraint firstAttribute="width" secondItem="Xvx-VX-E6x" secondAttribute="height" multiplier="191:30" id="f0w-Je-q2U"/>
+                    </constraints>
+                    <fontDescription key="fontDescription" type="boldSystem" pointSize="20"/>
+                    <nil key="textColor"/>
+                    <nil key="highlightedColor"/>
+                </label>
+                <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="Myl-cQ-Yv3">
+                    <rect key="frame" x="18" y="597" width="160" height="50"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <color key="backgroundColor" white="0.66666666669999997" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <inset key="imageEdgeInsets" minX="0.0" minY="0.0" maxX="2.2250738585072014e-308" maxY="0.0"/>
+                    <state key="normal" title="设置自动测量">
+                        <color key="titleColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    </state>
+                    <connections>
+                        <action selector="setAutoMeasurement:" destination="-1" eventType="touchUpInside" id="kDD-7p-z2N"/>
+                    </connections>
+                </button>
+                <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="6Ty-Cm-Brh">
+                    <rect key="frame" x="197" y="597" width="160" height="50"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <color key="backgroundColor" white="0.66666666669999997" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <inset key="imageEdgeInsets" minX="0.0" minY="0.0" maxX="2.2250738585072014e-308" maxY="0.0"/>
+                    <state key="normal" title="读取自动测量">
+                        <color key="titleColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    </state>
+                    <connections>
+                        <action selector="getAutoMeasurement:" destination="-1" eventType="touchUpInside" id="M7n-Wm-9Ag"/>
+                    </connections>
+                </button>
+                <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="aGX-gF-Y0U">
+                    <rect key="frame" x="331" y="49.5" width="21" height="21"/>
+                    <constraints>
+                        <constraint firstAttribute="width" secondItem="aGX-gF-Y0U" secondAttribute="height" multiplier="1:1" id="YPb-nX-WMo"/>
+                    </constraints>
+                    <inset key="imageEdgeInsets" minX="0.0" minY="0.0" maxX="2.2250738585072014e-308" maxY="0.0"/>
+                    <state key="normal" backgroundImage="tipsRisk"/>
+                    <connections>
+                        <action selector="showInfo:" destination="-1" eventType="touchUpInside" id="nrb-0Q-yCy"/>
+                    </connections>
+                </button>
+            </subviews>
+            <viewLayoutGuide key="safeArea" id="Q5M-cg-NOt"/>
+            <color key="backgroundColor" systemColor="systemBackgroundColor"/>
+            <constraints>
+                <constraint firstItem="Xvx-VX-E6x" firstAttribute="centerX" secondItem="Q5M-cg-NOt" secondAttribute="centerX" id="1Yp-ot-poh"/>
+                <constraint firstItem="VNi-bi-gfS" firstAttribute="top" secondItem="i5M-Pr-FkT" secondAttribute="top" constant="40" id="78e-OX-sIA"/>
+                <constraint firstItem="Xvx-VX-E6x" firstAttribute="width" secondItem="i5M-Pr-FkT" secondAttribute="width" multiplier="0.509333" id="8BT-R9-ZHf"/>
+                <constraint firstItem="aGX-gF-Y0U" firstAttribute="width" secondItem="i5M-Pr-FkT" secondAttribute="width" multiplier="0.056" id="Did-y9-53j"/>
+                <constraint firstItem="Q5M-cg-NOt" firstAttribute="trailing" secondItem="aGX-gF-Y0U" secondAttribute="trailing" constant="23" id="Drn-9W-IX2"/>
+                <constraint firstItem="aGX-gF-Y0U" firstAttribute="centerY" secondItem="VNi-bi-gfS" secondAttribute="centerY" id="LG7-ec-LeR"/>
+                <constraint firstItem="VNi-bi-gfS" firstAttribute="width" secondItem="i5M-Pr-FkT" secondAttribute="width" multiplier="0.266667" id="MEg-VC-6V8"/>
+                <constraint firstItem="VNi-bi-gfS" firstAttribute="leading" secondItem="Q5M-cg-NOt" secondAttribute="leading" id="gjB-Bg-F4t"/>
+                <constraint firstItem="Xvx-VX-E6x" firstAttribute="centerY" secondItem="VNi-bi-gfS" secondAttribute="centerY" id="in0-EN-o1M"/>
+            </constraints>
+            <point key="canvasLocation" x="139" y="68"/>
+        </view>
+        <scrollView clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="scaleToFill" ambiguous="YES" id="aOB-rR-N0F">
+            <rect key="frame" x="0.0" y="0.0" width="375" height="930"/>
+            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+            <subviews>
+                <segmentedControl opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="left" contentVerticalAlignment="top" segmentControlStyle="plain" selectedSegmentIndex="0" translatesAutoresizingMaskIntoConstraints="NO" id="Yg7-3O-1e7">
+                    <rect key="frame" x="40" y="16" width="295" height="32"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <segments>
+                        <segment title="OFF"/>
+                        <segment title="ON"/>
+                    </segments>
+                </segmentedControl>
+                <datePicker contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" datePickerMode="time" minuteInterval="1" style="wheels" translatesAutoresizingMaskIntoConstraints="NO" id="Dw0-dy-rkM">
+                    <rect key="frame" x="0.0" y="136" width="176" height="162"/>
+                    <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMaxY="YES"/>
+                </datePicker>
+                <datePicker contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" datePickerMode="time" minuteInterval="1" style="wheels" translatesAutoresizingMaskIntoConstraints="NO" id="B5e-iN-N9D">
+                    <rect key="frame" x="199" y="136" width="176" height="162"/>
+                    <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMaxY="YES"/>
+                </datePicker>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" text="Start Time" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="SVD-Q7-IJ7">
+                    <rect key="frame" x="13" y="88" width="150" height="21"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                    <nil key="textColor"/>
+                    <nil key="highlightedColor"/>
+                </label>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" text="End Time" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="wK0-XF-fYt">
+                    <rect key="frame" x="212" y="88" width="150" height="21"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                    <nil key="textColor"/>
+                    <nil key="highlightedColor"/>
+                </label>
+                <tableView clipsSubviews="YES" contentMode="scaleToFill" fixedFrame="YES" alwaysBounceVertical="YES" style="plain" separatorStyle="default" rowHeight="-1" estimatedRowHeight="-1" sectionHeaderHeight="-1" estimatedSectionHeaderHeight="-1" sectionFooterHeight="-1" estimatedSectionFooterHeight="-1" translatesAutoresizingMaskIntoConstraints="NO" id="vHI-Cb-1H0">
+                    <rect key="frame" x="0.0" y="311" width="375" height="244"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <color key="backgroundColor" systemColor="systemBackgroundColor"/>
+                    <connections>
+                        <outlet property="dataSource" destination="-1" id="oGr-jV-hRp"/>
+                        <outlet property="delegate" destination="-1" id="Zrw-gL-EfJ"/>
+                    </connections>
+                </tableView>
+                <pickerView contentMode="scaleToFill" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="5nt-KO-U6g">
+                    <rect key="frame" x="0.0" y="635" width="375" height="162"/>
+                    <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMaxY="YES"/>
+                    <connections>
+                        <outlet property="dataSource" destination="-1" id="Wb5-9U-FSt"/>
+                        <outlet property="delegate" destination="-1" id="exb-pa-GDM"/>
+                    </connections>
+                </pickerView>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" text="Interval Time" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="ReY-DU-oXM">
+                    <rect key="frame" x="112" y="601" width="150" height="21"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                    <nil key="textColor"/>
+                    <nil key="highlightedColor"/>
+                </label>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" text="数据类型" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="F4c-d0-z8V">
+                    <rect key="frame" x="112" y="820" width="150" height="21"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                    <nil key="textColor"/>
+                    <nil key="highlightedColor"/>
+                </label>
+                <segmentedControl opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="left" contentVerticalAlignment="top" segmentControlStyle="plain" selectedSegmentIndex="0" translatesAutoresizingMaskIntoConstraints="NO" id="Fo7-Gu-evD">
+                    <rect key="frame" x="12" y="875" width="350" height="32"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <segments>
+                        <segment title="HR"/>
+                        <segment title="Spo2"/>
+                        <segment title="Temperature"/>
+                        <segment title="HRV"/>
+                    </segments>
+                </segmentedControl>
+            </subviews>
+            <viewLayoutGuide key="safeArea" id="oHq-g3-f6h"/>
+            <freeformSimulatedSizeMetrics key="simulatedDestinationMetrics"/>
+            <point key="canvasLocation" x="892" y="117.84107946026987"/>
+        </scrollView>
+    </objects>
+    <resources>
+        <image name="tipsRisk" width="20.5" height="21"/>
+        <systemColor name="systemBackgroundColor">
+            <color white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+        </systemColor>
+    </resources>
+</document>

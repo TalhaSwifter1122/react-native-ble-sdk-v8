@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Weather</key>
+	<array>
+		<string>sunny</string>
+		<string>clear</string>
+		<string>fair</string>
+		<string>fair</string>
+		<string>cloudy</string>
+		<string>partly cloudy</string>
+		<string>partly cloudy</string>
+		<string>mostly cloudy</string>
+		<string>mostly cloudy</string>
+		<string>overcast</string>
+		<string>Shower</string>
+		<string>thundershower</string>
+		<string>thundershower with hail</string>
+		<string>light rain</string>
+		<string>moderate rain</string>
+		<string>heavy rain</string>
+		<string>storm</string>
+		<string>heavy storm</string>
+		<string>severe storm</string>
+		<string>ice rain</string>
+		<string>sleet</string>
+		<string>snow flurry</string>
+		<string>light snow</string>
+		<string>moderate snow</string>
+		<string>heavy snow</string>
+		<string>snowstorm</string>
+		<string>dust</string>
+		<string>sand</string>
+		<string>duststorm</string>
+		<string>sandstorm</string>
+		<string>foggy</string>
+		<string>haze</string>
+		<string>windy</string>
+		<string>blustery</string>
+		<string>hurricane</string>
+		<string>tropical storm</string>
+		<string>tornado</string>
+		<string>cold</string>
+		<string>hot</string>
+		<string>unknown</string>
+	</array>
+</dict>
+</plist>

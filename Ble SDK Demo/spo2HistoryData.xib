@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="21507" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina4_7" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="21505"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="System colors in document resources" minToolsVersion="11.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner" customClass="spo2HistoryData">
+            <connections>
+                <outlet property="btnDeleteData" destination="0fn-Um-Ld9" id="OZs-UR-uBv"/>
+                <outlet property="btnGetData" destination="NII-FF-1DM" id="LSK-p5-4ho"/>
+                <outlet property="labTitle" destination="Puh-uG-rKN" id="eIz-CI-UyE"/>
+                <outlet property="textViewData" destination="0hL-9E-ANO" id="7Lv-kY-l0M"/>
+                <outlet property="view" destination="i5M-Pr-FkT" id="sfx-zR-JGt"/>
+            </connections>
+        </placeholder>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view clearsContextBeforeDrawing="NO" contentMode="scaleToFill" id="i5M-Pr-FkT">
+            <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="qI4-8y-I5X">
+                    <rect key="frame" x="0.0" y="40" width="100" height="40"/>
+                    <color key="backgroundColor" white="0.66666666669999997" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <constraints>
+                        <constraint firstAttribute="width" secondItem="qI4-8y-I5X" secondAttribute="height" multiplier="5:2" id="rcM-tT-LOf"/>
+                    </constraints>
+                    <inset key="imageEdgeInsets" minX="0.0" minY="0.0" maxX="2.2250738585072014e-308" maxY="0.0"/>
+                    <state key="normal" title="Back">
+                        <color key="titleColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    </state>
+                    <connections>
+                        <action selector="back:" destination="-1" eventType="touchUpInside" id="ahl-ZA-S8Q"/>
+                    </connections>
+                </button>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="血氧数据" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Puh-uG-rKN">
+                    <rect key="frame" x="92" y="45" width="191" height="30"/>
+                    <constraints>
+                        <constraint firstAttribute="width" secondItem="Puh-uG-rKN" secondAttribute="height" multiplier="191:30" id="QAf-S8-dDn"/>
+                    </constraints>
+                    <fontDescription key="fontDescription" type="boldSystem" pointSize="25"/>
+                    <nil key="textColor"/>
+                    <nil key="highlightedColor"/>
+                </label>
+                <textView clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="scaleToFill" fixedFrame="YES" showsHorizontalScrollIndicator="NO" showsVerticalScrollIndicator="NO" editable="NO" textAlignment="natural" selectable="NO" translatesAutoresizingMaskIntoConstraints="NO" id="0hL-9E-ANO">
+                    <rect key="frame" x="16" y="93" width="351" height="483"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <color key="backgroundColor" systemColor="systemGray6Color"/>
+                    <color key="textColor" systemColor="labelColor"/>
+                    <fontDescription key="fontDescription" name="CourierNewPSMT" family="Courier New" pointSize="14"/>
+                    <textInputTraits key="textInputTraits" autocapitalizationType="sentences"/>
+                </textView>
+                <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="NII-FF-1DM">
+                    <rect key="frame" x="18" y="606" width="160" height="50"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <color key="backgroundColor" white="0.66666666669999997" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <inset key="imageEdgeInsets" minX="0.0" minY="0.0" maxX="2.2250738585072014e-308" maxY="0.0"/>
+                    <state key="normal" title="获取数据">
+                        <color key="titleColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    </state>
+                    <connections>
+                        <action selector="getData:" destination="-1" eventType="touchUpInside" id="gRA-3J-okZ"/>
+                    </connections>
+                </button>
+                <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="0fn-Um-Ld9">
+                    <rect key="frame" x="197" y="606" width="160" height="50"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <color key="backgroundColor" white="0.66666666669999997" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    <inset key="imageEdgeInsets" minX="0.0" minY="0.0" maxX="2.2250738585072014e-308" maxY="0.0"/>
+                    <state key="normal" title="删除数据">
+                        <color key="titleColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                    </state>
+                    <connections>
+                        <action selector="deleteData:" destination="-1" eventType="touchUpInside" id="oHJ-EE-YSI"/>
+                    </connections>
+                </button>
+                <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="YxB-Xn-DP9">
+                    <rect key="frame" x="331" y="49.5" width="22" height="21"/>
+                    <constraints>
+                        <constraint firstAttribute="width" secondItem="YxB-Xn-DP9" secondAttribute="height" multiplier="22:21" id="L38-TE-ImS"/>
+                    </constraints>
+                    <inset key="imageEdgeInsets" minX="0.0" minY="0.0" maxX="2.2250738585072014e-308" maxY="0.0"/>
+                    <state key="normal" backgroundImage="tipsRisk"/>
+                    <connections>
+                        <action selector="showInfo:" destination="-1" eventType="touchUpInside" id="LMJ-bg-EBV"/>
+                    </connections>
+                </button>
+            </subviews>
+            <viewLayoutGuide key="safeArea" id="Q5M-cg-NOt"/>
+            <color key="backgroundColor" systemColor="systemBackgroundColor"/>
+            <constraints>
+                <constraint firstItem="qI4-8y-I5X" firstAttribute="width" secondItem="i5M-Pr-FkT" secondAttribute="width" multiplier="0.266667" id="2C8-nz-ANT"/>
+                <constraint firstItem="YxB-Xn-DP9" firstAttribute="width" secondItem="i5M-Pr-FkT" secondAttribute="width" multiplier="0.0586667" id="CoU-WA-Lms"/>
+                <constraint firstItem="Puh-uG-rKN" firstAttribute="centerX" secondItem="Q5M-cg-NOt" secondAttribute="centerX" id="JI4-oh-8sC"/>
+                <constraint firstItem="Puh-uG-rKN" firstAttribute="width" secondItem="i5M-Pr-FkT" secondAttribute="width" multiplier="0.509333" id="JrJ-rS-RGc"/>
+                <constraint firstItem="Puh-uG-rKN" firstAttribute="centerY" secondItem="qI4-8y-I5X" secondAttribute="centerY" id="Uvv-XV-Mua"/>
+                <constraint firstItem="YxB-Xn-DP9" firstAttribute="centerY" secondItem="qI4-8y-I5X" secondAttribute="centerY" id="eFP-zT-CGM"/>
+                <constraint firstItem="qI4-8y-I5X" firstAttribute="top" secondItem="i5M-Pr-FkT" secondAttribute="top" constant="40" id="fkG-M4-Z77"/>
+                <constraint firstItem="qI4-8y-I5X" firstAttribute="leading" secondItem="Q5M-cg-NOt" secondAttribute="leading" id="qSc-QG-3cs"/>
+                <constraint firstItem="Q5M-cg-NOt" firstAttribute="trailing" secondItem="YxB-Xn-DP9" secondAttribute="trailing" constant="22" id="xaT-N5-K8O"/>
+            </constraints>
+            <point key="canvasLocation" x="138.40000000000001" y="67.916041979010501"/>
+        </view>
+    </objects>
+    <resources>
+        <image name="tipsRisk" width="20.5" height="21"/>
+        <systemColor name="labelColor">
+            <color red="0.0" green="0.0" blue="0.0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+        </systemColor>
+        <systemColor name="systemBackgroundColor">
+            <color white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+        </systemColor>
+        <systemColor name="systemGray6Color">
+            <color red="0.94901960784313721" green="0.94901960784313721" blue="0.96862745098039216" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+        </systemColor>
+    </resources>
+</document>
