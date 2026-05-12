@@ -170,14 +170,26 @@ async function _postWithRetry(url, body, retriesLeft) {
         if (_onUploadSuccess) _onUploadSuccess(body);
 
     } catch (err) {
-        if (retriesLeft > 0) {
+        // Distinguish ATS/connection errors from our own timeout abort
+        const isTimeout = err.name === 'AbortError' || err.message === 'Aborted';
+        const isNetworkError = err.message === 'Network request failed';
+
+        if (retriesLeft > 0 && !isNetworkError) {
+            // Network request failed = server unreachable, no point retrying immediately
             await _delay(500);
             return _postWithRetry(url, body, retriesLeft - 1);
         }
+
+        const hint = isTimeout
+            ? 'Request timed out. Check server is running and reachable.'
+            : isNetworkError
+                ? 'Cannot reach server. On iOS, ensure NSAllowsArbitraryLoads is set in Info.plist for HTTP URLs.'
+                : err.message;
+
         if (_onUploadError) {
-            _onUploadError(err, body);
+            _onUploadError(new Error(hint), body);
         } else {
-            console.warn('[BleSDK] Upload failed after retries:', err.message);
+            console.warn('[BleSDK] Upload failed:', hint, '| dataType:', body?.dataType);
         }
     }
 }

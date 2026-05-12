@@ -31,7 +31,7 @@ final class WearableAPIService {
     // --------------------------------------------------------
     // MARK: Configuration  ← CHANGE YOUR ENDPOINT HERE
     // --------------------------------------------------------
-    private var baseURL: String = "https://api.yourcompany.com/v1"
+    private var baseURL: String = "http://167.172.132.179:5000"
     private var bearerToken: String? = nil
 
     /// Call once at app launch (e.g. in AppDelegate or @main).
@@ -89,7 +89,7 @@ final class WearableAPIService {
             timestamp: isoNow(),
             records: records
         )
-        post(path: "/health/heart-rate", payload: payload)
+        post(payload: payload)
     }
 
     func uploadSingleHeartRate(_ records: [SingleHeartRateRecord]) {
@@ -99,7 +99,7 @@ final class WearableAPIService {
             timestamp: isoNow(),
             records: records
         )
-        post(path: "/health/heart-rate/single", payload: payload)
+        post(payload: payload)
     }
 
     func uploadSpo2(_ records: [SpO2Record]) {
@@ -109,7 +109,7 @@ final class WearableAPIService {
             timestamp: isoNow(),
             records: records
         )
-        post(path: "/health/spo2", payload: payload)
+        post(payload: payload)
     }
 
     func uploadSleep(_ records: [SleepRecord]) {
@@ -119,7 +119,7 @@ final class WearableAPIService {
             timestamp: isoNow(),
             records: records
         )
-        post(path: "/health/sleep", payload: payload)
+        post(payload: payload)
     }
 
     func uploadActivity(_ records: [ActivityRecord]) {
@@ -129,7 +129,7 @@ final class WearableAPIService {
             timestamp: isoNow(),
             records: records
         )
-        post(path: "/health/activity", payload: payload)
+        post(payload: payload)
     }
 
     func uploadTemperature(_ records: [TemperatureRecord]) {
@@ -139,7 +139,7 @@ final class WearableAPIService {
             timestamp: isoNow(),
             records: records
         )
-        post(path: "/health/temperature", payload: payload)
+        post(payload: payload)
     }
 
     func uploadHRV(_ records: [HRVRecord]) {
@@ -149,7 +149,7 @@ final class WearableAPIService {
             timestamp: isoNow(),
             records: records
         )
-        post(path: "/health/hrv", payload: payload)
+        post(payload: payload)
     }
 
     func uploadRealtimeStep(_ data: RealtimeStepData) {
@@ -159,16 +159,21 @@ final class WearableAPIService {
             timestamp: isoNow(),
             records: [data]
         )
-        post(path: "/health/realtime-step", payload: payload)
+        post(payload: payload)
     }
 
     // --------------------------------------------------------
     // MARK: Private networking core
     // --------------------------------------------------------
 
-    private func post<T: Encodable>(path: String, payload: T) {
-        guard let url = URL(string: baseURL + path) else {
-            print("[WearableAPIService] Invalid URL: \(baseURL + path)")
+    // All data types post to the single dump endpoint.
+    // The `dataType` field in the payload tells the backend which type it is.
+    private static let uploadPath = "/JC_band_data_dump"
+
+    private func post<T: Encodable>(payload: T) {
+        let fullURL = baseURL + WearableAPIService.uploadPath
+        guard let url = URL(string: fullURL) else {
+            print("[WearableAPIService] Invalid URL: \(fullURL)")
             return
         }
 

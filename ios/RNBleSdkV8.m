@@ -291,8 +291,12 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
 }
 
 - (void)EnableCommunicate {
+    NSString *uuid = [NewBle sharedManager].activityPeripheral.identifier.UUIDString ?: @"";
+    NSString *name = [NewBle sharedManager].activityPeripheral.name ?: @"";
     [self sendEventWithName:@"BleConnected"
-                       body:@{ @"connected": @YES }];
+                       body:@{ @"connected": @YES,
+                                @"uuid":      uuid,
+                                @"name":      name }];
 }
 
 - (void)Disconnect:(NSError *_Nullable)error {

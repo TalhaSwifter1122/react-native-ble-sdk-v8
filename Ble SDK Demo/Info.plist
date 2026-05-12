@@ -7,5 +7,13 @@
 		<string>bluetooth-central</string>
 		<string>bluetooth-peripheral</string>
 	</array>
+
+	<!-- Allow plain HTTP to the band-data server (IP address — ATS requires
+	     NSAllowsArbitraryLoads for IP-based URLs; domain exceptions don't apply) -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

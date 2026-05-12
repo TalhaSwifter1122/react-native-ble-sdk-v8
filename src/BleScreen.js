@@ -54,6 +54,29 @@ import {
 const SERVER_URL = 'http://167.172.132.179:5000/JC_band_data_dump';
 const SCAN_TIMEOUT_MS = 10_000; // auto-stop scan after 10 s
 
+// dataType integer → human-readable label
+// (mirrors the enum in the native BleSDK_V8 header)
+const DATA_TYPE_LABELS = {
+    1: 'Continuous HR',
+    2: 'Single HR',
+    3: 'Auto SpO2',
+    4: 'Manual SpO2',
+    5: 'Sleep Detail',
+    6: 'Sleep + Activity',
+    7: 'Temperature',
+    8: 'Realtime Step',
+    9: 'HRV',
+    10: 'PPI',
+    11: 'Total Activity',
+    12: 'Detail Activity',
+    13: 'Device Time',
+    14: 'Personal Info',
+    15: 'Battery',
+    16: 'Version',
+    17: 'Step Goal',
+    18: 'MAC Address',
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // BleScreen component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,14 +101,15 @@ export default function BleScreen() {
     useEffect(() => {
         const onDeviceFound = addBleListener(BleEvents.DEVICE_FOUND, (device) => {
             setDevices((prev) => {
-                const exists = prev.find((d) => d.id === device.id);
+                const exists = prev.find((d) => d.uuid === device.uuid);
                 if (exists) return prev;
                 return [...prev, device];
             });
         });
 
         const onConnected = addBleListener(BleEvents.CONNECTED, (info) => {
-            setConnectedId(info?.peripheralUUID ?? info?.id ?? null);
+            // native bridge now emits { connected, uuid, name }
+            setConnectedId(info?.uuid ?? null);
             setStatus('connected');
         });
 
@@ -101,7 +125,8 @@ export default function BleScreen() {
         });
 
         const onData = addBleListener(BleEvents.DATA, (payload) => {
-            const label = `${payload.dataType ?? 'data'} @ ${new Date().toLocaleTimeString()}`;
+            const typeLabel = DATA_TYPE_LABELS[payload.dataType] ?? `type ${payload.dataType}`;
+            const label = `${typeLabel} @ ${new Date().toLocaleTimeString()}`;
             setUploadLog((prev) => [label, ...prev].slice(0, 8));
             setLastUploadTime(new Date().toLocaleTimeString());
         });
@@ -196,15 +221,15 @@ export default function BleScreen() {
     }[connectionStatus] ?? 'Unknown';
 
     const renderDevice = ({ item }) => {
-        const isConnected = item.id === connectedId;
+        const isConnected = item.uuid === connectedId;
         return (
             <TouchableOpacity
                 style={[styles.deviceRow, isConnected && styles.deviceRowActive]}
-                onPress={() => isConnected ? handleDisconnect() : handleConnect(item.id)}
+                onPress={() => isConnected ? handleDisconnect() : handleConnect(item.uuid)}
             >
                 <View style={{ flex: 1 }}>
                     <Text style={styles.deviceName}>{item.name || 'Unknown Device'}</Text>
-                    <Text style={styles.deviceSub}>UUID: {item.id}</Text>
+                    <Text style={styles.deviceSub}>UUID: {item.uuid}</Text>
                     <Text style={styles.deviceSub}>RSSI: {item.rssi} dBm</Text>
                 </View>
                 <Text style={[styles.connectBtn, isConnected && { color: '#e74c3c' }]}>
@@ -249,7 +274,7 @@ export default function BleScreen() {
             ) : (
                 <FlatList
                     data={devices}
-                    keyExtractor={(d) => d.id}
+                    keyExtractor={(d) => d.uuid}
                     renderItem={renderDevice}
                     style={styles.list}
                     contentContainerStyle={{ paddingBottom: 12 }}
