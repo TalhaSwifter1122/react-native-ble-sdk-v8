@@ -30,12 +30,12 @@ const DATA_EVENT = 'BleData';
 // Internal state
 // ─────────────────────────────────────────────────────────────────────────────
 let _serverConfig = {
-    baseUrl: '',
+    baseUrl: 'http://167.172.132.179:5000',
     authToken: '',
     deviceId: '',
     timeoutMs: 10000,
     retryCount: 2,
-    endpoint: '/api/wearable/data',   // override with configureServer if needed
+    endpoint: '/JC_band_data_dump',
 };
 
 let _autoUploadSubscription = null;
@@ -59,10 +59,7 @@ let _onUploadError = null;
  * @param {Function} [config.onSuccess] Called after each successful upload
  * @param {Function} [config.onError]   Called when an upload finally fails after all retries
  */
-export function configureServer(config) {
-    if (!config.baseUrl) {
-        throw new Error('[BleSDK] configureServer: baseUrl is required');
-    }
+export function configureServer(config = {}) {
     _serverConfig = { ..._serverConfig, ...config };
     _onUploadSuccess = config.onSuccess || null;
     _onUploadError = config.onError || null;
