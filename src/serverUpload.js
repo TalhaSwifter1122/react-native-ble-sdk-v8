@@ -22,6 +22,10 @@
  */
 
 import { NativeEventEmitter, NativeModules } from 'react-native';
+import {
+    enrichBlePayloadWithSleepContext,
+    resetSleepContextState,
+} from './healthInsights';
 
 // Event name constant — duplicated here to avoid a circular import with index.js
 const DATA_EVENT = 'BleData';
@@ -36,6 +40,7 @@ let _serverConfig = {
     timeoutMs: 10000,
     retryCount: 2,
     endpoint: '/JC_band_data_dump',
+    enableSleepContext: true,
 };
 
 let _autoUploadSubscription = null;
@@ -73,15 +78,23 @@ export function configureServer(config = {}) {
  * Start automatically uploading every BleEvents.DATA packet to the server.
  * Requires configureServer() to have been called first.
  */
-export function startAutoUpload() {
+export function startAutoUpload(options = {}) {
     if (!_serverConfig.baseUrl) {
         throw new Error('[BleSDK] Call configureServer() before startAutoUpload()');
     }
+
+    if (typeof options.enableSleepContext === 'boolean') {
+        _serverConfig.enableSleepContext = options.enableSleepContext;
+    }
+
     if (_autoUploadSubscription) return; // already running
 
     const emitter = new NativeEventEmitter(NativeModules.RNBleSdkV8);
     _autoUploadSubscription = emitter.addListener(DATA_EVENT, (payload) => {
-        uploadData(payload);
+        const finalPayload = _serverConfig.enableSleepContext
+            ? enrichBlePayloadWithSleepContext(payload)
+            : payload;
+        uploadData(finalPayload);
     });
 }
 
@@ -91,6 +104,16 @@ export function stopAutoUpload() {
         _autoUploadSubscription.remove();
         _autoUploadSubscription = null;
     }
+}
+
+/** Enable/disable sleep-context enrichment for auto-upload payloads. */
+export function setAutoUploadSleepContextEnabled(enabled) {
+    _serverConfig.enableSleepContext = !!enabled;
+}
+
+/** Clear cached sleep windows used for payload enrichment. */
+export function resetAutoUploadSleepContext() {
+    resetSleepContextState();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

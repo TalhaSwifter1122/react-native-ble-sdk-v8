@@ -80,6 +80,83 @@ BleSdk.startScan();
 // onDisconnected.remove();
 ```
 
+## Sleep Status + Vital Context
+
+Use these helpers when you need to decide if the user was sleeping at a given
+time and annotate HR/SpO2/temperature with that context.
+
+```js
+import {
+  buildSleepWindows,
+  isSleepingFromBlePayload,
+  buildHealthContext,
+} from 'react-native-ble-sdk-v8';
+
+let latestSleepPayload = null;
+
+addBleListener(BleEvents.DATA, (payload) => {
+  // Save latest sleep packet (dataType 27 or 81)
+  if (payload.dataType === 27 || payload.dataType === 81) {
+    latestSleepPayload = payload;
+
+    const sleepNow = isSleepingFromBlePayload(payload);
+    console.log('isSleepingNow:', sleepNow.isSleepingNow);
+  }
+
+  // Example: when HR packet arrives, annotate with sleep context
+  if (payload.dataType === 28 && latestSleepPayload) {
+    const context = buildHealthContext({
+      sleepPayload: latestSleepPayload,
+      heartRatePayload: payload,
+    });
+    console.log('HR with sleep tags:', context.heartRate.continuous);
+  }
+});
+```
+
+Notes:
+- Sleep stage encoding used by SDK: `0=awake`, `1=light`, `2=deep`, `3=REM`.
+- `isSleepingNow` is based on whether current time falls into any non-awake
+  sleep window reconstructed from `arraySleepQuality` and `sleepUnitLength`.
+- This is inference from historical packets, not a dedicated real-time sleep
+  flag from firmware.
+
+### RN functions you can call directly
+
+```js
+import {
+  updateSleepContextWithPayload,
+  enrichBlePayloadWithSleepContext,
+  getSleepContextState,
+  resetSleepContextState,
+  setAutoUploadSleepContextEnabled,
+} from 'react-native-ble-sdk-v8';
+
+// 1) On every BleEvents.DATA packet
+addBleListener(BleEvents.DATA, (payload) => {
+  // Keeps latest sleep windows in memory when payload is sleep type
+  updateSleepContextWithPayload(payload);
+
+  // Any payload (HR/SpO2/temp/...) gets sleepContext + per-record isSleeping tags
+  const enriched = enrichBlePayloadWithSleepContext(payload);
+  console.log(enriched.sleepContext?.isSleepingNow);
+});
+
+// 2) Read current state any time
+const sleepState = getSleepContextState();
+console.log('isSleepingNow:', sleepState.isSleepingNow);
+
+// 3) Reset cached windows (e.g. on logout/device switch)
+resetSleepContextState();
+
+// 4) Auto-upload already enriches by default; disable if needed
+setAutoUploadSleepContextEnabled(false);
+```
+
+Auto-upload note:
+- `startAutoUpload()` now enriches outgoing payloads with `sleepContext` by default.
+- Use `startAutoUpload({ enableSleepContext: false })` to disable at startup.
+
 ---
 
 ## Event reference

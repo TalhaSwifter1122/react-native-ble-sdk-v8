@@ -7,6 +7,8 @@ export {
     configureServer,
     startAutoUpload,
     stopAutoUpload,
+    setAutoUploadSleepContextEnabled,
+    resetAutoUploadSleepContext,
     uploadData,
     uploadToEndpoint,
 } from './src/serverUpload';
@@ -16,6 +18,21 @@ export {
     processSleepPayload,
     processSleepRecord,
 } from './src/sleepLogic';
+
+export {
+    buildSleepWindows,
+    isSleepingAt,
+    isSleepingFromBlePayload,
+    buildHealthContext,
+    classifyBlePayload,
+    isSleepPayload,
+    resetSleepContextState,
+    getSleepContextState,
+    updateSleepContextWithPayload,
+    enrichBlePayloadWithSleepContext,
+    resolveSleepStatusFromBleData,
+    getCurrentSleepStatus,
+} from './src/healthInsights';
 
 const { RNBleSdkV8 } = NativeModules;
 
@@ -203,6 +220,8 @@ import {
     configureServer,
     startAutoUpload,
     stopAutoUpload,
+    setAutoUploadSleepContextEnabled,
+    resetAutoUploadSleepContext,
     uploadData,
     uploadToEndpoint,
 } from './src/serverUpload';
@@ -212,6 +231,21 @@ import {
     processSleepPayload,
     processSleepRecord,
 } from './src/sleepLogic';
+
+import {
+    buildSleepWindows,
+    isSleepingAt,
+    isSleepingFromBlePayload,
+    buildHealthContext,
+    classifyBlePayload,
+    isSleepPayload,
+    resetSleepContextState,
+    getSleepContextState,
+    updateSleepContextWithPayload,
+    enrichBlePayloadWithSleepContext,
+    resolveSleepStatusFromBleData,
+    getCurrentSleepStatus,
+} from './src/healthInsights';
 
 export default {
     BleEvents,
@@ -245,10 +279,25 @@ export default {
     configureServer,
     startAutoUpload,
     stopAutoUpload,
+    setAutoUploadSleepContextEnabled,
+    resetAutoUploadSleepContext,
     uploadData,
     uploadToEndpoint,
     // sleep logic
     configureSleepLogic,
     processSleepPayload,
     processSleepRecord,
+    // health context
+    buildSleepWindows,
+    isSleepingAt,
+    isSleepingFromBlePayload,
+    buildHealthContext,
+    classifyBlePayload,
+    isSleepPayload,
+    resetSleepContextState,
+    getSleepContextState,
+    updateSleepContextWithPayload,
+    enrichBlePayloadWithSleepContext,
+    resolveSleepStatusFromBleData,
+    getCurrentSleepStatus,
 };
