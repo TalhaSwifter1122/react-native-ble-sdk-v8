@@ -30,6 +30,20 @@ import {
 // Event name constant — duplicated here to avoid a circular import with index.js
 const DATA_EVENT = 'BleData';
 
+const DATA_TYPE_NAMES = {
+    24: 'RealTimeStep',
+    25: 'TotalActivityData',
+    26: 'DetailActivityData',
+    27: 'DetailSleepData',
+    28: 'DynamicHR',
+    29: 'StaticHR',
+    41: 'HRVData',
+    45: 'AutomaticSpo2Data',
+    46: 'ManualSpo2Data',
+    48: 'TemperatureData',
+    81: 'DetailSleepAndActivityData',
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal state
 // ─────────────────────────────────────────────────────────────────────────────
@@ -87,6 +101,14 @@ export function startAutoUpload(options = {}) {
         _serverConfig.enableSleepContext = options.enableSleepContext;
     }
 
+    // Ask the device to stream live step/HR updates whenever upload is started.
+    // This is safe to call repeatedly (e.g. on reconnect).
+    try {
+        NativeModules?.RNBleSdkV8?.setRealtimeData?.(1);
+    } catch (err) {
+        console.warn('[BleSDK] Unable to enable realtime data stream:', err?.message || err);
+    }
+
     if (_autoUploadSubscription) return; // already running
 
     const emitter = new NativeEventEmitter(NativeModules.RNBleSdkV8);
@@ -128,13 +150,7 @@ export function resetAutoUploadSleepContext() {
  * @returns {Promise<void>}
  */
 export async function uploadData(blePayload) {
-    const body = {
-        deviceId: _serverConfig.deviceId,
-        timestamp: new Date().toISOString(),
-        dataType: blePayload.dataType,
-        dataEnd: blePayload.dataEnd,
-        data: blePayload.data,
-    };
+    const body = _buildServerBody(blePayload);
 
     await _postWithRetry(
         _serverConfig.baseUrl + _serverConfig.endpoint,
@@ -219,4 +235,114 @@ async function _postWithRetry(url, body, retriesLeft) {
 
 function _delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function _buildServerBody(blePayload) {
+    const data = blePayload?.data && typeof blePayload.data === 'object'
+        ? blePayload.data
+        : {};
+
+    const realtime = _extractRealtime(data);
+    const latest = _extractLatestFromHistory(data);
+    const sleepContext = blePayload?.sleepContext || null;
+    const isSleeping = blePayload?.isSleeping
+        ?? sleepContext?.isSleepingNow
+        ?? null;
+
+    return {
+        schemaVersion: '1.1',
+        deviceId: _serverConfig.deviceId,
+        timestamp: new Date().toISOString(),
+        dataType: Number(blePayload?.dataType ?? -1),
+        dataTypeName: DATA_TYPE_NAMES[Number(blePayload?.dataType)] || 'Unknown',
+        dataEnd: Boolean(blePayload?.dataEnd),
+        healthStatus: {
+            isSleeping,
+            lastSleepWindow: sleepContext?.lastSleepWindow || blePayload?.lastSleepWindow || null,
+            steps: _firstNonNull(realtime.steps, latest.steps),
+            heartRate: _firstNonNull(realtime.heartRate, latest.heartRate),
+            spo2: latest.spo2,
+            temperature: latest.temperature,
+            hrv: latest.hrv,
+        },
+        metrics: {
+            realtime,
+            latest,
+            records: {
+                sleep: _arrayLength(data.arrayDetailSleepData) + _arrayLength(data.arrayDetailSleepAndActivityData),
+                activity: _arrayLength(data.arrayActivity) + _arrayLength(data.arrayDetailActivityData),
+                heartRateContinuous: _arrayLength(data.arrayContinuousHR),
+                heartRateSingle: _arrayLength(data.arraySingleHR),
+                spo2Automatic: _arrayLength(data.arrayAutomaticSpo2Data),
+                spo2Manual: _arrayLength(data.arrayManualSpo2Data),
+                temperature: _arrayLength(data.arrayTemperatureData) + _arrayLength(data.arrayemperatureData),
+                hrv: _arrayLength(data.arrayHRVData),
+            },
+        },
+        sleepContext,
+        // Backward-compatible keys
+        data: blePayload?.data,
+        payload: blePayload,
+    };
+}
+
+function _extractRealtime(data) {
+    return {
+        steps: _toFiniteNumber(data.steps ?? data.step ?? data.stepCount ?? data.totalSteps),
+        calories: _toFiniteNumber(data.calories),
+        distance: _toFiniteNumber(data.distance),
+        heartRate: _toFiniteNumber(data.heartRate ?? data.hr),
+    };
+}
+
+function _extractLatestFromHistory(data) {
+    const latestActivity = _lastItem(data.arrayActivity) || _lastItem(data.arrayDetailActivityData);
+    const latestSingleHr = _lastItem(data.arraySingleHR);
+    const latestContinuousHr = _lastItem(data.arrayContinuousHR);
+    const latestSpo2Auto = _lastItem(data.arrayAutomaticSpo2Data);
+    const latestSpo2Manual = _lastItem(data.arrayManualSpo2Data);
+    const latestTemp = _lastItem(data.arrayTemperatureData) || _lastItem(data.arrayemperatureData);
+    const latestHrv = _lastItem(data.arrayHRVData);
+
+    const continuousHrLatest = _lastNumber(latestContinuousHr?.arrayHR);
+
+    return {
+        steps: _toFiniteNumber(latestActivity?.steps),
+        calories: _toFiniteNumber(latestActivity?.calories),
+        distance: _toFiniteNumber(latestActivity?.distance),
+        heartRate: _firstNonNull(
+            _toFiniteNumber(latestSingleHr?.singleHR),
+            _toFiniteNumber(continuousHrLatest)
+        ),
+        spo2: _firstNonNull(
+            _toFiniteNumber(latestSpo2Manual?.manualSpo2Data),
+            _toFiniteNumber(latestSpo2Auto?.automaticSpo2Data)
+        ),
+        temperature: _toFiniteNumber(latestTemp?.temperature),
+        hrv: _toFiniteNumber(latestHrv?.hrv),
+    };
+}
+
+function _arrayLength(value) {
+    return Array.isArray(value) ? value.length : 0;
+}
+
+function _lastItem(value) {
+    return Array.isArray(value) && value.length > 0 ? value[value.length - 1] : null;
+}
+
+function _lastNumber(value) {
+    return Array.isArray(value) && value.length > 0 ? value[value.length - 1] : null;
+}
+
+function _toFiniteNumber(value) {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function _firstNonNull(...values) {
+    for (const value of values) {
+        if (value !== null && value !== undefined) return value;
+    }
+    return null;
 }

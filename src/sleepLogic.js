@@ -43,6 +43,8 @@
  * });
  */
 
+import { resolveSleepStatusFromBleData } from './healthInsights';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SDK stage constants (do not change — these come from the device)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,7 +118,12 @@ export function processSleepPayload(payload) {
     const SLEEP_TYPES = [27, 81]; // DetailSleepData_V8=27, DetailSleepAndActivityData_V8=81
 
     if (!SLEEP_TYPES.includes(payload.dataType)) {
-        return payload; // not a sleep packet, return as-is
+        const resolved = resolveSleepStatusFromBleData(payload);
+        return {
+            ...resolved.enrichedPayload,
+            isSleeping: resolved.isSleepingNow,
+            lastSleepWindow: resolved.sleepContext?.lastSleepWindow ?? null,
+        };
     }
 
     const arrayKey = payload.dataType === 81
@@ -130,12 +137,19 @@ export function processSleepPayload(payload) {
         .map(record => _processSleepRecord(record))
         .filter(record => record !== null); // null = filtered out by minimumSleepSession
 
-    return {
+    const processedPayload = {
         ...payload,
         data: {
             ...payload.data,
             [arrayKey]: processed,
         },
+    };
+
+    const resolved = resolveSleepStatusFromBleData(processedPayload);
+    return {
+        ...resolved.enrichedPayload,
+        isSleeping: resolved.isSleepingNow,
+        lastSleepWindow: resolved.sleepContext?.lastSleepWindow ?? null,
     };
 }
 

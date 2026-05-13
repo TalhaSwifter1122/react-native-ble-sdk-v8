@@ -433,13 +433,26 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
 
         // Real-time step data
         case RealTimeStep_V8: {
-            if (mutableDic[@"steps"]) {
-                NSInteger v = [mutableDic[@"steps"] integerValue] + _stepsOffset;
-                mutableDic[@"steps"] = @(MAX(0, v));
+            NSNumber *rawSteps = mutableDic[@"steps"]
+                ?: mutableDic[@"step"]
+                ?: mutableDic[@"stepCount"]
+                ?: mutableDic[@"totalSteps"];
+            if (rawSteps) {
+                NSInteger v = [rawSteps integerValue] + _stepsOffset;
+                NSNumber *normalizedSteps = @(MAX(0, v));
+                // Emit common aliases so JS integrations can read any expected key.
+                mutableDic[@"steps"] = normalizedSteps;
+                mutableDic[@"step"] = normalizedSteps;
+                mutableDic[@"stepCount"] = normalizedSteps;
+                mutableDic[@"totalSteps"] = normalizedSteps;
             }
-            if (mutableDic[@"heartRate"]) {
-                NSInteger v = [mutableDic[@"heartRate"] integerValue] + _heartRateOffset;
-                mutableDic[@"heartRate"] = @(MAX(0, v));
+
+            NSNumber *rawHeartRate = mutableDic[@"heartRate"] ?: mutableDic[@"hr"];
+            if (rawHeartRate) {
+                NSInteger v = [rawHeartRate integerValue] + _heartRateOffset;
+                NSNumber *normalizedHeartRate = @(MAX(0, v));
+                mutableDic[@"heartRate"] = normalizedHeartRate;
+                mutableDic[@"hr"] = normalizedHeartRate;
             }
             break;
         }
