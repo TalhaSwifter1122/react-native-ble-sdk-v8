@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     FlatList,
     SafeAreaView,
@@ -55,6 +55,44 @@ const formatMaybeNumber = (value, suffix = '') => {
 const toNumberOrNull = value => {
     const parsed = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(parsed) ? parsed : null;
+};
+
+const parseSdkDate = value => {
+    if (!value) return null;
+
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+
+    if (typeof value === 'number') {
+        const fromNumber = new Date(value);
+        return Number.isNaN(fromNumber.getTime()) ? null : fromNumber;
+    }
+
+    if (typeof value !== 'string') return null;
+
+    // Native Date parse handles ISO with timezone correctly.
+    const direct = new Date(value);
+    if (!Number.isNaN(direct.getTime())) return direct;
+
+    // SDK often sends local-ish strings like "yy-MM-dd HH:mm[:ss]".
+    const normalized = value.replace(/[/.]/g, '-').trim();
+    const match = normalized.match(/^(\d{2}|\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+    if (!match) return null;
+
+    const yearRaw = Number(match[1]);
+    const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const hour = Number(match[4] || 0);
+    const minute = Number(match[5] || 0);
+    const second = Number(match[6] || 0);
+
+    const localDate = new Date(year, month, day, hour, minute, second);
+    return Number.isNaN(localDate.getTime()) ? null : localDate;
+};
+
+const formatLocalDateTime = value => {
+    const date = parseSdkDate(value);
+    return date ? date.toLocaleString() : '--';
 };
 
 const getLast = arr => {
@@ -119,6 +157,12 @@ const App = () => {
     const [hrv, setHrv] = useState(null);
 
     const [lastDataDate, setLastDataDate] = useState('--');
+    const [streamState, setStreamState] = useState('idle');
+
+    const realtimeKeepAliveRef = useRef(null);
+    const dataRefreshRef = useRef(null);
+    const streamWatchdogRef = useRef(null);
+    const lastRealtimePacketTsRef = useRef(0);
 
     const pushEvent = msg => {
         setEvents(prev => [msg, ...prev].slice(0, MAX_EVENTS));
@@ -141,6 +185,60 @@ const App = () => {
         getHRVHistory(0, null);
         getBatteryLevel();
         getDeviceVersion();
+    };
+
+    const requestPeriodicRefresh = () => {
+        // Lightweight set for latest values when realtime packet gaps happen.
+        getSingleHRHistory(0, null);
+        getAutomaticSpo2History(0, null);
+        getTemperatureHistory(0, null);
+        getHRVHistory(0, null);
+        getTotalActivityData(0, null);
+    };
+
+    const stopRealtimeLoops = () => {
+        if (realtimeKeepAliveRef.current) {
+            clearInterval(realtimeKeepAliveRef.current);
+            realtimeKeepAliveRef.current = null;
+        }
+        if (dataRefreshRef.current) {
+            clearInterval(dataRefreshRef.current);
+            dataRefreshRef.current = null;
+        }
+        if (streamWatchdogRef.current) {
+            clearInterval(streamWatchdogRef.current);
+            streamWatchdogRef.current = null;
+        }
+    };
+
+    const startRealtimeLoops = () => {
+        stopRealtimeLoops();
+
+        // Immediately request realtime stream.
+        setRealtimeData(true);
+        lastRealtimePacketTsRef.current = Date.now();
+        setStreamState('starting');
+
+        // Re-arm realtime stream periodically to handle firmware idle drops.
+        realtimeKeepAliveRef.current = setInterval(() => {
+            setRealtimeData(true);
+        }, 8000);
+
+        // Pull latest history values in case a given metric is not fully realtime.
+        dataRefreshRef.current = setInterval(() => {
+            requestPeriodicRefresh();
+        }, 15000);
+
+        // Stream watchdog: if no realtime packet for too long, force refresh.
+        streamWatchdogRef.current = setInterval(() => {
+            const ageMs = Date.now() - lastRealtimePacketTsRef.current;
+            if (ageMs > 20000) {
+                setStreamState('recovering');
+                setRealtimeData(true);
+                requestPeriodicRefresh();
+                pushEvent('Realtime stream stale, recovering...');
+            }
+        }, 5000);
     };
 
     useEffect(() => {
@@ -167,8 +265,8 @@ const App = () => {
                 setConnectionText(`Connected: ${deviceName}`);
                 pushEvent(`Connected: ${deviceName}`);
 
-                // Re-enable stream after every reconnect.
-                setRealtimeData(true);
+                // Start robust realtime pipeline after every reconnect.
+                startRealtimeLoops();
                 startAutoUpload({ enableSleepContext: true });
 
                 requestInitialSync();
@@ -178,11 +276,14 @@ const App = () => {
                 const deviceName = device?.name || device?.uuid || 'device';
                 setConnectionText(`Disconnected: ${deviceName}`);
                 pushEvent(`Disconnected: ${deviceName}`);
+                setStreamState('stopped');
+                stopRealtimeLoops();
             }),
 
             addBleListener(BleEvents.DATA, rawPayload => {
                 try {
                     const payload = processSleepPayload(rawPayload);
+                    const type = Number(payload?.dataType);
 
                     const realtime = extractRealtime(payload);
                     const history = extractLatestHistory(payload);
@@ -193,8 +294,8 @@ const App = () => {
 
                     if (payload?.lastSleepWindow?.start || payload?.sleepContext?.lastSleepWindow?.start) {
                         const window = payload?.lastSleepWindow || payload?.sleepContext?.lastSleepWindow;
-                        const start = window?.start ? new Date(window.start).toLocaleString() : '--';
-                        const end = window?.end ? new Date(window.end).toLocaleString() : '--';
+                        const start = formatLocalDateTime(window?.start);
+                        const end = formatLocalDateTime(window?.end);
                         setLastSleepWindowText(`${start} -> ${end}`);
                     }
 
@@ -215,10 +316,14 @@ const App = () => {
                     if (history.hrv !== null) setHrv(history.hrv);
 
                     if (history.recordDate) {
-                        setLastDataDate(history.recordDate);
+                        setLastDataDate(formatLocalDateTime(history.recordDate));
                     }
 
-                    const type = Number(payload?.dataType);
+                    if (type === 24) {
+                        lastRealtimePacketTsRef.current = Date.now();
+                        setStreamState('live');
+                    }
+
                     pushEvent(`Data: ${dataTypeName[type] || `Type-${type}`} | end=${Boolean(payload?.dataEnd)}`);
                 } catch (err) {
                     pushEvent(`Processing error: ${err?.message || 'unknown'}`);
@@ -227,6 +332,7 @@ const App = () => {
         ];
 
         return () => {
+            stopRealtimeLoops();
             subs.forEach(sub => {
                 if (sub?.remove) sub.remove();
             });
@@ -243,6 +349,7 @@ const App = () => {
                 <Text style={styles.heading}>Connection</Text>
                 <View style={styles.statusCard}>
                     <Text style={styles.statusText}>{connectionText}</Text>
+                    <Text style={styles.statusText}>Realtime Stream: {streamState}</Text>
                 </View>
 
                 <Text style={styles.heading}>Health Status</Text>
