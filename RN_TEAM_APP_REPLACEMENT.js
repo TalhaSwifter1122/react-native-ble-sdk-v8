@@ -32,6 +32,7 @@ import {
 
 const MAX_EVENTS = 120;
 const MAX_API_LOGS = 80;
+const MAX_SLEEP_HISTORY = 30;
 
 const dataTypeName = {
     24: 'RealTimeStep',
@@ -114,6 +115,112 @@ const truncateText = (text, maxLen = 240) => {
     return `${text.slice(0, maxLen)}...`;
 };
 
+const formatDurationMinutes = (value) => {
+    const minutes = toNumberOrNull(value);
+    if (minutes === null || minutes < 0) return '--';
+
+    const hours = Math.floor(minutes / 60);
+    const remaining = minutes % 60;
+    if (hours <= 0) return `${remaining}m`;
+    return `${hours}h ${remaining}m`;
+};
+
+const formatLocalTime = (value) => {
+    const date = parseSdkDate(value);
+    return date ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
+};
+
+const formatSleepWindowLocal = (start, end) => {
+    const startDate = parseSdkDate(start);
+    const endDate = parseSdkDate(end);
+    if (!startDate || !endDate) return '--';
+
+    return `${startDate.toLocaleString()} -> ${endDate.toLocaleString()}`;
+};
+
+const getSleepRecordsFromPayload = (payload) => {
+    const data = payload?.data || {};
+    const fromDetail = Array.isArray(data.arrayDetailSleepData) ? data.arrayDetailSleepData : [];
+    const fromCombined = Array.isArray(data.arrayDetailSleepAndActivityData)
+        ? data.arrayDetailSleepAndActivityData
+        : [];
+    return [...fromDetail, ...fromCombined];
+};
+
+const buildSleepSession = (record) => {
+    const start = parseSdkDate(record?.date || record?.startDate || record?.startTime);
+    if (!start) return null;
+
+    let unitMinutes = toNumberOrNull(record?.sleepUnitLength);
+    if (unitMinutes === null || unitMinutes <= 0) unitMinutes = 1;
+
+    const stages = Array.isArray(record?.arraySleepQualitySmoothed)
+        ? record.arraySleepQualitySmoothed
+        : (Array.isArray(record?.arraySleepQuality) ? record.arraySleepQuality : []);
+
+    const computedSleepMinutes = stages.reduce((acc, stage) => (
+        Number(stage) === 0 ? acc : acc + unitMinutes
+    ), 0);
+    const computedWindowMinutes = stages.length * unitMinutes;
+
+    const totalSleepMinutes = toNumberOrNull(record?.totalSleepTime)
+        ?? computedSleepMinutes
+        ?? 0;
+    const totalWindowMinutes = computedWindowMinutes > 0
+        ? computedWindowMinutes
+        : totalSleepMinutes;
+
+    const end = new Date(start.getTime() + (totalWindowMinutes * 60 * 1000));
+    if (Number.isNaN(end.getTime())) return null;
+
+    const awakeMinutes = toNumberOrNull(record?.awakeDurationMinutes)
+        ?? Math.max(totalWindowMinutes - totalSleepMinutes, 0);
+
+    return {
+        key: `${start.getTime()}-${end.getTime()}-${totalSleepMinutes}`,
+        start,
+        end,
+        totalSleepMinutes,
+        awakeMinutes,
+        lightMinutes: toNumberOrNull(record?.lightSleepMinutes),
+        deepMinutes: toNumberOrNull(record?.deepSleepMinutes),
+        remMinutes: toNumberOrNull(record?.remSleepMinutes),
+        sleepEfficiency: toNumberOrNull(record?.sleepEfficiency),
+    };
+};
+
+const mergeSleepSessions = (prev, next) => {
+    const merged = new Map((prev || []).map(item => [item.key, item]));
+    (next || []).forEach(item => {
+        if (item?.key) merged.set(item.key, item);
+    });
+
+    return [...merged.values()]
+        .sort((a, b) => b.end.getTime() - a.end.getTime())
+        .slice(0, MAX_SLEEP_HISTORY);
+};
+
+const getLastNightSession = (sessions) => {
+    if (!Array.isArray(sessions) || sessions.length === 0) return null;
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const noonToday = new Date(startOfToday.getTime() + (12 * 60 * 60 * 1000));
+    const lookbackStart = new Date(startOfToday.getTime() - (2 * 24 * 60 * 60 * 1000));
+
+    const nightCandidates = sessions.filter(session => (
+        session.totalSleepMinutes >= 60
+        && session.end.getTime() >= lookbackStart.getTime()
+        && session.end.getTime() <= noonToday.getTime()
+    ));
+
+    if (nightCandidates.length > 0) {
+        return nightCandidates.sort((a, b) => b.end.getTime() - a.end.getTime())[0];
+    }
+
+    return sessions[0];
+};
+
 const extractRealtime = payload => {
     const data = payload?.data || {};
     return {
@@ -162,6 +269,7 @@ const App = () => {
 
     const [isSleeping, setIsSleeping] = useState(null);
     const [lastSleepWindowText, setLastSleepWindowText] = useState('--');
+    const [sleepHistory, setSleepHistory] = useState([]);
 
     const [steps, setSteps] = useState(null);
     const [calories, setCalories] = useState(null);
@@ -193,6 +301,8 @@ const App = () => {
         if (isSleeping === false) return 'Awake';
         return 'Unknown';
     }, [isSleeping]);
+
+    const lastNightSession = useMemo(() => getLastNightSession(sleepHistory), [sleepHistory]);
 
     const requestInitialSync = () => {
         getSleepAndActivityHistory(0);
@@ -373,6 +483,16 @@ const App = () => {
                         setLastSleepWindowText(`${start} -> ${end}`);
                     }
 
+                    if (type === 27 || type === 81) {
+                        const sessions = getSleepRecordsFromPayload(payload)
+                            .map(buildSleepSession)
+                            .filter(Boolean);
+
+                        if (sessions.length > 0) {
+                            setSleepHistory(prev => mergeSleepSessions(prev, sessions));
+                        }
+                    }
+
                     if (realtime.steps !== null) setSteps(realtime.steps);
                     if (history.steps !== null && realtime.steps === null) setSteps(history.steps);
 
@@ -431,7 +551,25 @@ const App = () => {
                 <View style={styles.statusCard}>
                     <Text style={styles.statusText}>Sleep: {statusText}</Text>
                     <Text style={styles.statusText}>Last Sleep Window: {lastSleepWindowText}</Text>
+                    <Text style={styles.statusText}>
+                        Last Night Sleep: {formatDurationMinutes(lastNightSession?.totalSleepMinutes)}
+                    </Text>
+                    <Text style={styles.statusText}>
+                        Last Night Range: {formatSleepWindowLocal(lastNightSession?.start, lastNightSession?.end)}
+                    </Text>
                     <Text style={styles.statusText}>Last Day/Record Date: {lastDataDate}</Text>
+                </View>
+
+                <Text style={styles.heading}>Sleep History (Local Time)</Text>
+                <View style={styles.statusCard}>
+                    {sleepHistory.slice(0, 6).map((session, index) => (
+                        <Text key={session.key || String(index)} style={styles.statusTextSmall}>
+                            {`${session.start.toLocaleDateString()} | ${formatLocalTime(session.start)} - ${formatLocalTime(session.end)} | Sleep ${formatDurationMinutes(session.totalSleepMinutes)} | Awake ${formatDurationMinutes(session.awakeMinutes)}`}
+                        </Text>
+                    ))}
+                    {sleepHistory.length === 0 && (
+                        <Text style={styles.statusTextSmall}>No sleep history yet</Text>
+                    )}
                 </View>
 
                 <Text style={styles.heading}>Vitals</Text>
@@ -519,6 +657,13 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 15,
         fontWeight: '600',
+        marginBottom: 6,
+    },
+
+    statusTextSmall: {
+        color: '#E2E2E2',
+        fontSize: 13,
+        fontWeight: '500',
         marginBottom: 6,
     },
 
