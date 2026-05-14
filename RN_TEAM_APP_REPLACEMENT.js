@@ -33,6 +33,7 @@ import {
 const MAX_EVENTS = 120;
 const MAX_API_LOGS = 80;
 const MAX_SLEEP_HISTORY = 30;
+const MAX_METRIC_HISTORY = 60;
 
 const dataTypeName = {
     24: 'RealTimeStep',
@@ -145,6 +146,24 @@ const getSleepRecordsFromPayload = (payload) => {
         ? data.arrayDetailSleepAndActivityData
         : [];
     return [...fromDetail, ...fromCombined];
+};
+
+const appendMetricPoint = (prev, point) => {
+    if (!point || point.value === null || point.value === undefined) return prev || [];
+    const normalized = {
+        time: point.time instanceof Date ? point.time : parseSdkDate(point.time) || new Date(),
+        value: toNumberOrNull(point.value),
+    };
+    if (normalized.value === null) return prev || [];
+
+    const list = Array.isArray(prev) ? prev : [];
+    const key = `${normalized.time.getTime()}-${normalized.value}`;
+    const hasSame = list.some(item => `${item.time.getTime()}-${item.value}` === key);
+    if (hasSame) return list;
+
+    return [normalized, ...list]
+        .sort((a, b) => b.time.getTime() - a.time.getTime())
+        .slice(0, MAX_METRIC_HISTORY);
 };
 
 const buildSleepSession = (record) => {
@@ -280,6 +299,12 @@ const App = () => {
     const [temperature, setTemperature] = useState(null);
     const [hrv, setHrv] = useState(null);
 
+    const [stepHistory, setStepHistory] = useState([]);
+    const [heartRateHistory, setHeartRateHistory] = useState([]);
+    const [spo2History, setSpo2History] = useState([]);
+    const [temperatureHistory, setTemperatureHistory] = useState([]);
+    const [hrvHistory, setHrvHistory] = useState([]);
+
     const [lastDataDate, setLastDataDate] = useState('--');
     const [streamState, setStreamState] = useState('idle');
 
@@ -303,6 +328,44 @@ const App = () => {
     }, [isSleeping]);
 
     const lastNightSession = useMemo(() => getLastNightSession(sleepHistory), [sleepHistory]);
+
+    const applyHealthStatusToUI = (healthStatus, timestampLike) => {
+        if (!healthStatus || typeof healthStatus !== 'object') return;
+
+        const pointTime = parseSdkDate(timestampLike) || new Date();
+        const nextSteps = toNumberOrNull(healthStatus?.steps);
+        const nextHeartRate = toNumberOrNull(healthStatus?.heartRate);
+        const nextSpo2 = toNumberOrNull(healthStatus?.spo2);
+        const nextTemperature = toNumberOrNull(healthStatus?.temperature);
+        const nextHrv = toNumberOrNull(healthStatus?.hrv);
+
+        if (nextSteps !== null) {
+            setSteps(nextSteps);
+            setStepHistory(prev => appendMetricPoint(prev, { time: pointTime, value: nextSteps }));
+        }
+
+        if (nextHeartRate !== null) {
+            setHeartRate(nextHeartRate);
+            setHeartRateHistory(prev => appendMetricPoint(prev, { time: pointTime, value: nextHeartRate }));
+        }
+
+        if (nextSpo2 !== null) {
+            setSpo2(nextSpo2);
+            setSpo2History(prev => appendMetricPoint(prev, { time: pointTime, value: nextSpo2 }));
+        }
+
+        if (nextTemperature !== null) {
+            setTemperature(nextTemperature);
+            setTemperatureHistory(prev => appendMetricPoint(prev, { time: pointTime, value: nextTemperature }));
+        }
+
+        if (nextHrv !== null) {
+            setHrv(nextHrv);
+            setHrvHistory(prev => appendMetricPoint(prev, { time: pointTime, value: nextHrv }));
+        }
+
+        setLastDataDate(formatLocalDateTime(pointTime));
+    };
 
     const requestInitialSync = () => {
         getSleepAndActivityHistory(0);
@@ -382,6 +445,9 @@ const App = () => {
             timeoutMs: 30000,
             retryCount: 0,
             onRequest: meta => {
+                const body = meta?.request?.body;
+                applyHealthStatusToUI(body?.healthStatus, body?.timestamp);
+
                 const row = {
                     time: new Date().toLocaleTimeString(),
                     type: 'REQUEST',
@@ -581,6 +647,25 @@ const App = () => {
                     <Text style={styles.statusText}>SpO2: {formatMaybeNumber(spo2, ' %')}</Text>
                     <Text style={styles.statusText}>Temperature: {formatMaybeNumber(temperature, ' C')}</Text>
                     <Text style={styles.statusText}>HRV: {formatMaybeNumber(hrv)}</Text>
+                </View>
+
+                <Text style={styles.heading}>Vitals History (Local Time)</Text>
+                <View style={styles.statusCard}>
+                    <Text style={styles.statusTextSmall}>
+                        Steps: {stepHistory.slice(0, 3).map(p => `${formatMaybeNumber(p.value)} @ ${formatLocalTime(p.time)}`).join(' | ') || '--'}
+                    </Text>
+                    <Text style={styles.statusTextSmall}>
+                        Heart Rate: {heartRateHistory.slice(0, 3).map(p => `${formatMaybeNumber(p.value, ' bpm')} @ ${formatLocalTime(p.time)}`).join(' | ') || '--'}
+                    </Text>
+                    <Text style={styles.statusTextSmall}>
+                        SpO2: {spo2History.slice(0, 3).map(p => `${formatMaybeNumber(p.value, ' %')} @ ${formatLocalTime(p.time)}`).join(' | ') || '--'}
+                    </Text>
+                    <Text style={styles.statusTextSmall}>
+                        Temperature: {temperatureHistory.slice(0, 3).map(p => `${formatMaybeNumber(p.value, ' C')} @ ${formatLocalTime(p.time)}`).join(' | ') || '--'}
+                    </Text>
+                    <Text style={styles.statusTextSmall}>
+                        HRV: {hrvHistory.slice(0, 3).map(p => `${formatMaybeNumber(p.value)} @ ${formatLocalTime(p.time)}`).join(' | ') || '--'}
+                    </Text>
                 </View>
 
                 <Text style={styles.heading}>Events</Text>
