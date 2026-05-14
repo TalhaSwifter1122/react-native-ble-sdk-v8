@@ -14,6 +14,7 @@ import {
     addBleListener,
     configureServer,
     startAutoUpload,
+    stopAutoUpload,
     setRealtimeData,
     configureSleepLogic,
     processSleepPayload,
@@ -30,6 +31,7 @@ import {
 } from 'react-native-ble-sdk-v8';
 
 const MAX_EVENTS = 120;
+const MAX_API_LOGS = 80;
 
 const dataTypeName = {
     24: 'RealTimeStep',
@@ -99,6 +101,19 @@ const getLast = arr => {
     return Array.isArray(arr) && arr.length > 0 ? arr[arr.length - 1] : null;
 };
 
+const toJsonSafe = value => {
+    try {
+        return JSON.stringify(value);
+    } catch (err) {
+        return String(value);
+    }
+};
+
+const truncateText = (text, maxLen = 240) => {
+    if (!text || text.length <= maxLen) return text || '--';
+    return `${text.slice(0, maxLen)}...`;
+};
+
 const extractRealtime = payload => {
     const data = payload?.data || {};
     return {
@@ -142,6 +157,7 @@ const extractLatestHistory = payload => {
 
 const App = () => {
     const [events, setEvents] = useState([]);
+    const [apiLogs, setApiLogs] = useState([]);
     const [connectionText, setConnectionText] = useState('Waiting for connection');
 
     const [isSleeping, setIsSleeping] = useState(null);
@@ -168,6 +184,10 @@ const App = () => {
         setEvents(prev => [msg, ...prev].slice(0, MAX_EVENTS));
     };
 
+    const pushApiLog = (entry) => {
+        setApiLogs(prev => [entry, ...prev].slice(0, MAX_API_LOGS));
+    };
+
     const statusText = useMemo(() => {
         if (isSleeping === true) return 'Sleeping';
         if (isSleeping === false) return 'Awake';
@@ -175,25 +195,25 @@ const App = () => {
     }, [isSleeping]);
 
     const requestInitialSync = () => {
-        getSleepAndActivityHistory(0, null);
-        getTotalActivityData(0, null);
-        getContinuousHRHistory(0, null);
-        getSingleHRHistory(0, null);
-        getAutomaticSpo2History(0, null);
-        getManualSpo2History(0, null);
-        getTemperatureHistory(0, null);
-        getHRVHistory(0, null);
+        getSleepAndActivityHistory(0);
+        getTotalActivityData(0);
+        getContinuousHRHistory(0);
+        getSingleHRHistory(0);
+        getAutomaticSpo2History(0);
+        getManualSpo2History(0);
+        getTemperatureHistory(0);
+        getHRVHistory(0);
         getBatteryLevel();
         getDeviceVersion();
     };
 
     const requestPeriodicRefresh = () => {
         // Lightweight set for latest values when realtime packet gaps happen.
-        getSingleHRHistory(0, null);
-        getAutomaticSpo2History(0, null);
-        getTemperatureHistory(0, null);
-        getHRVHistory(0, null);
-        getTotalActivityData(0, null);
+        getSingleHRHistory(0);
+        getAutomaticSpo2History(0);
+        getTemperatureHistory(0);
+        getHRVHistory(0);
+        getTotalActivityData(0);
     };
 
     const stopRealtimeLoops = () => {
@@ -249,6 +269,60 @@ const App = () => {
             authToken: 'Bearer YOUR_TOKEN',
             deviceId: 'test-device-001',
             endpoint: '/JC_band_data_dump',
+            timeoutMs: 30000,
+            retryCount: 0,
+            onRequest: meta => {
+                const row = {
+                    time: new Date().toLocaleTimeString(),
+                    type: 'REQUEST',
+                    status: `attempt ${meta?.attempt}`,
+                    details: {
+                        url: meta?.url,
+                        retriesLeft: meta?.retriesLeft,
+                        request: meta?.request,
+                    },
+                };
+                pushApiLog(row);
+                pushEvent(`API Request | attempt ${meta?.attempt} | retriesLeft ${meta?.retriesLeft}`);
+                console.log('[BLE SDK][UPLOAD][REQUEST]', row.details);
+            },
+            onSuccess: (sentBody, meta) => {
+                const status = `${meta?.response?.status || 200} ${meta?.response?.statusText || ''}`.trim();
+                const row = {
+                    time: new Date().toLocaleTimeString(),
+                    type: 'SUCCESS',
+                    status,
+                    details: {
+                        url: meta?.url,
+                        request: meta?.request,
+                        response: meta?.response,
+                        sentBody,
+                    },
+                };
+                pushApiLog(row);
+                pushEvent(`API Success | ${status} | ${dataTypeName[sentBody?.dataType] || `Type-${sentBody?.dataType}`}`);
+                console.log('[BLE SDK][UPLOAD][SUCCESS]', row.details);
+            },
+            onError: (err, sentBody, meta) => {
+                const status = meta?.response?.status
+                    ? `${meta.response.status} ${meta?.response?.statusText || ''}`.trim()
+                    : 'NO_RESPONSE';
+                const row = {
+                    time: new Date().toLocaleTimeString(),
+                    type: 'ERROR',
+                    status,
+                    details: {
+                        message: err?.message,
+                        url: meta?.url,
+                        request: meta?.request,
+                        response: meta?.response,
+                        sentBody,
+                    },
+                };
+                pushApiLog(row);
+                pushEvent(`API Error | ${status} | ${err?.message || 'unknown'}`);
+                console.log('[BLE SDK][UPLOAD][ERROR]', row.details);
+            },
         });
 
         configureSleepLogic({
@@ -333,6 +407,7 @@ const App = () => {
 
         return () => {
             stopRealtimeLoops();
+            stopAutoUpload();
             subs.forEach(sub => {
                 if (sub?.remove) sub.remove();
             });
@@ -382,6 +457,25 @@ const App = () => {
                         </View>
                     )}
                     ListEmptyComponent={<Text style={styles.emptyText}>No events yet</Text>}
+                />
+
+                <Text style={styles.heading}>API Upload Debug (Latest)</Text>
+                <FlatList
+                    data={apiLogs}
+                    keyExtractor={(_, index) => `api-${index}`}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={styles.eventsContent}
+                    renderItem={({ item }) => (
+                        <View style={styles.eventItem}>
+                            <Text style={styles.eventText}>
+                                [{item.time}] {item.type} | {item.status}
+                            </Text>
+                            <Text style={styles.eventTextMuted}>
+                                {truncateText(toJsonSafe(item.details))}
+                            </Text>
+                        </View>
+                    )}
+                    ListEmptyComponent={<Text style={styles.emptyText}>No API logs yet</Text>}
                 />
             </View>
         </SafeAreaView>
@@ -442,6 +536,12 @@ const styles = StyleSheet.create({
     eventText: {
         color: '#FFFFFF',
         fontSize: 13,
+    },
+
+    eventTextMuted: {
+        color: '#B5B5B5',
+        fontSize: 12,
+        marginTop: 6,
     },
 
     emptyText: {
