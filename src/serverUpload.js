@@ -60,6 +60,7 @@ let _serverConfig = {
 let _autoUploadSubscription = null;
 let _onUploadSuccess = null;
 let _onUploadError = null;
+let _onUploadRequest = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Configuration
@@ -75,11 +76,13 @@ let _onUploadError = null;
  * @param {string} [config.endpoint]    Path to POST data to (default: '/api/wearable/data')
  * @param {number} [config.timeoutMs]   Request timeout in ms (default: 10000)
  * @param {number} [config.retryCount]  How many times to retry a failed upload (default: 2)
+ * @param {Function} [config.onRequest] Called before each request attempt
  * @param {Function} [config.onSuccess] Called after each successful upload
  * @param {Function} [config.onError]   Called when an upload finally fails after all retries
  */
 export function configureServer(config = {}) {
     _serverConfig = { ..._serverConfig, ...config };
+    _onUploadRequest = config.onRequest || null;
     _onUploadSuccess = config.onSuccess || null;
     _onUploadError = config.onError || null;
 }
@@ -184,29 +187,68 @@ export async function uploadToEndpoint(endpoint, data) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function _postWithRetry(url, body, retriesLeft) {
+    const totalRetries = Number.isFinite(_serverConfig.retryCount)
+        ? Math.max(0, _serverConfig.retryCount)
+        : 0;
+    const attempt = Math.max(1, totalRetries - retriesLeft + 1);
+
+    const requestHeaders = { 'Content-Type': 'application/json' };
+    if (_serverConfig.authToken) {
+        requestHeaders.Authorization = _serverConfig.authToken;
+    }
+
+    if (_onUploadRequest) {
+        _onUploadRequest({
+            attempt,
+            retriesLeft,
+            url,
+            request: {
+                method: 'POST',
+                headers: requestHeaders,
+                body,
+            },
+        });
+    }
+
+    let timer = null;
     try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), _serverConfig.timeoutMs);
-
-        const headers = { 'Content-Type': 'application/json' };
-        if (_serverConfig.authToken) {
-            headers['Authorization'] = _serverConfig.authToken;
-        }
+        timer = setTimeout(() => controller.abort(), _serverConfig.timeoutMs);
 
         const response = await fetch(url, {
             method: 'POST',
-            headers,
+            headers: requestHeaders,
             body: JSON.stringify(body),
             signal: controller.signal,
         });
 
-        clearTimeout(timer);
+        const responseBody = await _readResponseBodySafely(response);
+        const responseHeaders = _headersToObject(response?.headers);
+        const uploadMeta = {
+            attempt,
+            retriesLeft,
+            url,
+            request: {
+                method: 'POST',
+                headers: requestHeaders,
+                body,
+            },
+            response: {
+                ok: response.ok,
+                status: response.status,
+                statusText: response.statusText,
+                headers: responseHeaders,
+                body: responseBody,
+            },
+        };
 
         if (!response.ok) {
-            throw new Error(`Server responded ${response.status}`);
+            const err = new Error(`Server responded ${response.status}`);
+            err.uploadMeta = uploadMeta;
+            throw err;
         }
 
-        if (_onUploadSuccess) _onUploadSuccess(body);
+        if (_onUploadSuccess) _onUploadSuccess(body, uploadMeta);
 
     } catch (err) {
         // Distinguish ATS/connection errors from our own timeout abort
@@ -225,12 +267,58 @@ async function _postWithRetry(url, body, retriesLeft) {
                 ? 'Cannot reach server. On iOS, ensure NSAllowsArbitraryLoads is set in Info.plist for HTTP URLs.'
                 : err.message;
 
+        const uploadMeta = {
+            attempt,
+            retriesLeft,
+            url,
+            request: {
+                method: 'POST',
+                headers: requestHeaders,
+                body,
+            },
+            response: err?.uploadMeta?.response || null,
+        };
+
         if (_onUploadError) {
-            _onUploadError(new Error(hint), body);
+            _onUploadError(new Error(hint), body, uploadMeta);
         } else {
             console.warn('[BleSDK] Upload failed:', hint, '| dataType:', body?.dataType);
         }
+    } finally {
+        if (timer) clearTimeout(timer);
     }
+}
+
+async function _readResponseBodySafely(response) {
+    if (!response) return null;
+
+    try {
+        const contentType = (response.headers?.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json')) {
+            return await response.json();
+        }
+
+        const text = await response.text();
+        if (!text) return null;
+
+        try {
+            return JSON.parse(text);
+        } catch (jsonErr) {
+            return text;
+        }
+    } catch (err) {
+        return null;
+    }
+}
+
+function _headersToObject(headers) {
+    if (!headers || typeof headers.forEach !== 'function') return {};
+
+    const output = {};
+    headers.forEach((value, key) => {
+        output[key] = value;
+    });
+    return output;
 }
 
 function _delay(ms) {

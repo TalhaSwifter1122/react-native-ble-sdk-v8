@@ -8,7 +8,7 @@ Pod::Spec.new do |s|
   s.summary      = package["description"]
   s.homepage     = "https://github.com/your-org/react-native-ble-sdk-v8"
   s.license      = "MIT"
-  s.authors      = { "Your Name" => "you@example.com" }
+  s.authors      = { "Muhammad Talha" => "m.talha8266@gmail.com" }
 
   s.platforms    = { :ios => "11.0" }
   s.source       = { :git => "https://github.com/your-org/react-native-ble-sdk-v8.git", :tag => "#{s.version}" }
