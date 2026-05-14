@@ -151,52 +151,61 @@ export function getDeviceVersion() { RNBleSdkV8.getDeviceVersion(); }
 export function getStepGoal() { RNBleSdkV8.getStepGoal(); }
 export function getMacAddress() { RNBleSdkV8.getMacAddress(); }
 
+function callHistoryCommand(nativeMethod, mode = 0, startDate = null) {
+    const iso = startDate instanceof Date ? startDate.toISOString() : null;
+    if (iso) {
+        nativeMethod(mode, iso);
+    } else {
+        nativeMethod(mode);
+    }
+}
+
 /**
  * @param {number} mode  0 = latest 50, 2 = next page, 0x99 = delete all
  * @param {Date|null} startDate
  */
 export function getSleepHistory(mode = 0, startDate = null) {
-    RNBleSdkV8.getSleepHistory(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getSleepHistory, mode, startDate);
 }
 
 export function getSleepAndActivityHistory(mode = 0, startDate = null) {
-    RNBleSdkV8.getSleepAndActivityHistory(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getSleepAndActivityHistory, mode, startDate);
 }
 
 export function getContinuousHRHistory(mode = 0, startDate = null) {
-    RNBleSdkV8.getContinuousHRHistory(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getContinuousHRHistory, mode, startDate);
 }
 
 export function getSingleHRHistory(mode = 0, startDate = null) {
-    RNBleSdkV8.getSingleHRHistory(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getSingleHRHistory, mode, startDate);
 }
 
 export function getAutomaticSpo2History(mode = 0, startDate = null) {
-    RNBleSdkV8.getAutomaticSpo2History(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getAutomaticSpo2History, mode, startDate);
 }
 
 export function getManualSpo2History(mode = 0, startDate = null) {
-    RNBleSdkV8.getManualSpo2History(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getManualSpo2History, mode, startDate);
 }
 
 export function getTemperatureHistory(mode = 0, startDate = null) {
-    RNBleSdkV8.getTemperatureHistory(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getTemperatureHistory, mode, startDate);
 }
 
 export function getHRVHistory(mode = 0, startDate = null) {
-    RNBleSdkV8.getHRVHistory(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getHRVHistory, mode, startDate);
 }
 
 export function getPPIHistory(mode = 0, startDate = null) {
-    RNBleSdkV8.getPPIHistory(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getPPIHistory, mode, startDate);
 }
 
 export function getTotalActivityData(mode = 0, startDate = null) {
-    RNBleSdkV8.getTotalActivityData(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getTotalActivityData, mode, startDate);
 }
 
 export function getDetailActivityData(mode = 0, startDate = null) {
-    RNBleSdkV8.getDetailActivityData(mode, startDate ? startDate.toISOString() : null);
+    callHistoryCommand(RNBleSdkV8.getDetailActivityData, mode, startDate);
 }
 
 /** Start real-time step + HR streaming (dataType 1 = on, 0 = off). */

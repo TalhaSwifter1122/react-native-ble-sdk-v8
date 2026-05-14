@@ -265,7 +265,7 @@ const App = () => {
         RNBootSplash.hide({ fade: true });
 
         configureServer({
-            baseUrl: 'https://api.yourserver.com',
+            baseUrl: 'http://167.172.132.179:5000',
             authToken: 'Bearer YOUR_TOKEN',
             deviceId: 'test-device-001',
             endpoint: '/JC_band_data_dump',
