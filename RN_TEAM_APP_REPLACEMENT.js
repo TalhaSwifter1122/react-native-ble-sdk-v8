@@ -18,6 +18,7 @@ import {
     setRealtimeData,
     configureSleepLogic,
     processSleepPayload,
+    getSleepHistory,
     getSleepAndActivityHistory,
     getTotalActivityData,
     getContinuousHRHistory,
@@ -368,6 +369,7 @@ const App = () => {
     };
 
     const requestInitialSync = () => {
+        getSleepHistory(0);
         getSleepAndActivityHistory(0);
         getTotalActivityData(0);
         getContinuousHRHistory(0);
@@ -556,6 +558,16 @@ const App = () => {
 
                         if (sessions.length > 0) {
                             setSleepHistory(prev => mergeSleepSessions(prev, sessions));
+                        }
+
+                        // Device returns sleep history in pages. Continue until dataEnd=true.
+                        if (!Boolean(payload?.dataEnd)) {
+                            if (type === 81) {
+                                getSleepAndActivityHistory(2);
+                            } else {
+                                getSleepHistory(2);
+                            }
+                            pushEvent('Sleep history paging: requesting next batch');
                         }
                     }
 
