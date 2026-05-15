@@ -124,7 +124,8 @@ final class WearableRNModule: RCTEventEmitter {
                 "id":          device.id,
                 "name":        device.name,
                 "rssi":        device.rssi,
-                "serviceUUIDs": device.serviceUUIDs
+                "serviceUUIDs": device.serviceUUIDs,
+                "time" : device.time
             ]
             if let ln = device.localName          { body["localName"] = ln }
             if let mfr = device.manufacturerDataHex { body["manufacturerDataHex"] = mfr }
