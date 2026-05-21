@@ -24,6 +24,7 @@
 import { NativeEventEmitter, NativeModules } from 'react-native';
 import {
     enrichBlePayloadWithSleepContext,
+    estimateMentalWellnessFromPayload,
     resetSleepContextState,
 } from './healthInsights';
 
@@ -336,9 +337,11 @@ function _buildServerBody(blePayload) {
     const isSleeping = blePayload?.isSleeping
         ?? sleepContext?.isSleepingNow
         ?? null;
+    const mentalWellness = blePayload?.mentalWellness
+        || estimateMentalWellnessFromPayload(blePayload, { sleepContext });
 
     return {
-        schemaVersion: '1.1',
+        schemaVersion: '1.2',
         deviceId: _serverConfig.deviceId,
         timestamp: new Date().toISOString(),
         dataType: Number(blePayload?.dataType ?? -1),
@@ -352,6 +355,10 @@ function _buildServerBody(blePayload) {
             spo2: latest.spo2,
             temperature: latest.temperature,
             hrv: latest.hrv,
+            stressScore: mentalWellness?.stressScore ?? null,
+            stressLevel: mentalWellness?.stressLevel ?? null,
+            anxietyScore: mentalWellness?.anxietyScore ?? null,
+            anxietyLevel: mentalWellness?.anxietyLevel ?? null,
         },
         metrics: {
             realtime,
@@ -368,6 +375,7 @@ function _buildServerBody(blePayload) {
             },
         },
         sleepContext,
+        mentalWellness,
         // Backward-compatible keys
         data: blePayload?.data,
         payload: blePayload,

@@ -21,9 +21,23 @@ const DATA_TYPE = {
 const SLEEP_STAGE_AWAKE = 0;
 const DEFAULT_SLEEP_LOOKBACK_MINUTES = 24 * 60;
 
+const MENTAL_LEVELS = {
+    LOW: 'low',
+    MODERATE: 'moderate',
+    HIGH: 'high',
+};
+
 let _sleepContextState = {
     latestSleepPayload: null,
     sleepWindows: [],
+};
+
+let _mentalState = {
+    heartRate: null,
+    hrv: null,
+    spo2: null,
+    lastStressScore: null,
+    lastAnxietyScore: null,
 };
 
 function toDate(value) {
@@ -180,6 +194,170 @@ function annotateArray(records, dateKey, sleepWindows) {
     });
 }
 
+function toFiniteNumber(value) {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function scoreToLevel(score) {
+    if (score >= 70) return MENTAL_LEVELS.HIGH;
+    if (score >= 40) return MENTAL_LEVELS.MODERATE;
+    return MENTAL_LEVELS.LOW;
+}
+
+function readLatestFromArray(array, key) {
+    if (!Array.isArray(array) || array.length === 0) return null;
+    const latest = array[array.length - 1];
+    return toFiniteNumber(latest?.[key]);
+}
+
+function readLatestContinuousHr(array) {
+    if (!Array.isArray(array) || array.length === 0) return null;
+    const latest = array[array.length - 1];
+    if (!Array.isArray(latest?.arrayHR) || latest.arrayHR.length === 0) return null;
+    return toFiniteNumber(latest.arrayHR[latest.arrayHR.length - 1]);
+}
+
+function extractPrimaryMetrics(payload) {
+    const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
+
+    const realtimeHeartRate = toFiniteNumber(data.heartRate ?? data.hr);
+    const realtimeSteps = toFiniteNumber(data.steps ?? data.step ?? data.stepCount ?? data.totalSteps);
+
+    const latestSingleHr = readLatestFromArray(data.arraySingleHR, 'singleHR');
+    const latestContinuousHr = readLatestContinuousHr(data.arrayContinuousHR);
+    const latestSpo2Auto = readLatestFromArray(data.arrayAutomaticSpo2Data, 'automaticSpo2Data');
+    const latestSpo2Manual = readLatestFromArray(data.arrayManualSpo2Data, 'manualSpo2Data');
+    const latestTemp = readLatestFromArray(data.arrayTemperatureData || data.arrayemperatureData, 'temperature');
+    const latestHrv = readLatestFromArray(data.arrayHRVData, 'hrv');
+
+    return {
+        steps: realtimeSteps,
+        heartRate: realtimeHeartRate ?? latestSingleHr ?? latestContinuousHr,
+        spo2: latestSpo2Manual ?? latestSpo2Auto,
+        temperature: latestTemp,
+        hrv: latestHrv,
+    };
+}
+
+function computeStressScore(metrics, isSleepingNow) {
+    let score = 30;
+
+    if (metrics.heartRate !== null) {
+        if (metrics.heartRate >= 110) score += 34;
+        else if (metrics.heartRate >= 95) score += 24;
+        else if (metrics.heartRate >= 85) score += 14;
+        else if (metrics.heartRate <= 55) score += 6;
+    }
+
+    if (metrics.hrv !== null) {
+        if (metrics.hrv < 20) score += 34;
+        else if (metrics.hrv < 30) score += 25;
+        else if (metrics.hrv < 45) score += 14;
+        else if (metrics.hrv >= 80) score -= 8;
+    }
+
+    if (metrics.spo2 !== null) {
+        if (metrics.spo2 < 92) score += 16;
+        else if (metrics.spo2 < 95) score += 8;
+    }
+
+    if (isSleepingNow === true) {
+        score -= 20;
+    }
+
+    if (_mentalState.heartRate !== null && metrics.heartRate !== null) {
+        const deltaHr = metrics.heartRate - _mentalState.heartRate;
+        if (deltaHr >= 15) score += 8;
+    }
+
+    if (_mentalState.lastStressScore !== null) {
+        score = (score * 0.65) + (_mentalState.lastStressScore * 0.35);
+    }
+
+    return Math.round(clamp(score, 0, 100));
+}
+
+function computeAnxietyScore(metrics, stressScore, isSleepingNow) {
+    let score = stressScore * 0.6;
+
+    if (metrics.heartRate !== null) {
+        if (metrics.heartRate >= 105) score += 22;
+        else if (metrics.heartRate >= 90) score += 14;
+    }
+
+    if (metrics.hrv !== null) {
+        if (metrics.hrv < 25) score += 24;
+        else if (metrics.hrv < 35) score += 14;
+    }
+
+    if (isSleepingNow === false) {
+        score += 6;
+    }
+
+    if (_mentalState.lastAnxietyScore !== null) {
+        score = (score * 0.7) + (_mentalState.lastAnxietyScore * 0.3);
+    }
+
+    return Math.round(clamp(score, 0, 100));
+}
+
+export function estimateMentalWellnessFromPayload(payload, options = {}) {
+    const sleepContext = options.sleepContext || payload?.sleepContext || null;
+    const isSleepingNow = sleepContext?.isSleepingNow ?? null;
+
+    const incoming = extractPrimaryMetrics(payload);
+    const metrics = {
+        steps: incoming.steps,
+        heartRate: incoming.heartRate ?? _mentalState.heartRate,
+        spo2: incoming.spo2 ?? _mentalState.spo2,
+        temperature: incoming.temperature,
+        hrv: incoming.hrv ?? _mentalState.hrv,
+    };
+
+    const stressScore = computeStressScore(metrics, isSleepingNow);
+    const anxietyScore = computeAnxietyScore(metrics, stressScore, isSleepingNow);
+
+    _mentalState = {
+        ..._mentalState,
+        heartRate: metrics.heartRate,
+        hrv: metrics.hrv,
+        spo2: metrics.spo2,
+        lastStressScore: stressScore,
+        lastAnxietyScore: anxietyScore,
+    };
+
+    return {
+        stressScore,
+        stressLevel: scoreToLevel(stressScore),
+        anxietyScore,
+        anxietyLevel: scoreToLevel(anxietyScore),
+        inputs: {
+            heartRate: metrics.heartRate,
+            hrv: metrics.hrv,
+            spo2: metrics.spo2,
+            isSleepingNow,
+        },
+        updatedAt: new Date().toISOString(),
+    };
+}
+
+export function getMentalWellnessState() {
+    return {
+        ..._mentalState,
+        stressLevel: _mentalState.lastStressScore === null
+            ? null
+            : scoreToLevel(_mentalState.lastStressScore),
+        anxietyLevel: _mentalState.lastAnxietyScore === null
+            ? null
+            : scoreToLevel(_mentalState.lastAnxietyScore),
+    };
+}
+
 export function buildHealthContext(params) {
     const {
         sleepPayload,
@@ -312,6 +490,14 @@ export function resetSleepContextState() {
         latestSleepPayload: null,
         sleepWindows: [],
     };
+
+    _mentalState = {
+        heartRate: null,
+        hrv: null,
+        spo2: null,
+        lastStressScore: null,
+        lastAnxietyScore: null,
+    };
 }
 
 export function getSleepContextState(now) {
@@ -345,14 +531,35 @@ export function enrichBlePayloadWithSleepContext(payload, options = {}) {
     if (isSleepPayload(payload)) {
         const context = updateSleepContextWithPayload(payload, options);
         const classified = classifyBlePayload(payload, context.sleepWindows, options);
+
+        const mentalWellness = estimateMentalWellnessFromPayload(classified, {
+            ...options,
+            sleepContext: context,
+        });
+
         return {
             ...classified,
             sleepContext: context,
+            mentalWellness,
+            data: classified?.data && typeof classified.data === 'object'
+                ? {
+                    ...classified.data,
+                    stressScore: mentalWellness.stressScore,
+                    stressLevel: mentalWellness.stressLevel,
+                    anxietyScore: mentalWellness.anxietyScore,
+                    anxietyLevel: mentalWellness.anxietyLevel,
+                }
+                : classified?.data,
         };
     }
 
     const state = getSleepContextState(options.now);
     const classified = classifyBlePayload(payload, state.sleepWindows, options);
+    const mentalWellness = estimateMentalWellnessFromPayload(classified, {
+        ...options,
+        sleepContext: state,
+    });
+
     return {
         ...classified,
         sleepContext: {
@@ -360,6 +567,16 @@ export function enrichBlePayloadWithSleepContext(payload, options = {}) {
             lastSleepWindow: state.lastSleepWindow,
             sleepWindows: state.sleepWindows,
         },
+        mentalWellness,
+        data: classified?.data && typeof classified.data === 'object'
+            ? {
+                ...classified.data,
+                stressScore: mentalWellness.stressScore,
+                stressLevel: mentalWellness.stressLevel,
+                anxietyScore: mentalWellness.anxietyScore,
+                anxietyLevel: mentalWellness.anxietyLevel,
+            }
+            : classified?.data,
     };
 }
 

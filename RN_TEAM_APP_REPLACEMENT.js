@@ -32,7 +32,6 @@ import {
 } from 'react-native-ble-sdk-v8';
 
 const MAX_EVENTS = 120;
-const MAX_API_LOGS = 80;
 const MAX_SLEEP_HISTORY = 30;
 const MAX_METRIC_HISTORY = 60;
 
@@ -102,19 +101,6 @@ const formatLocalDateTime = value => {
 
 const getLast = arr => {
     return Array.isArray(arr) && arr.length > 0 ? arr[arr.length - 1] : null;
-};
-
-const toJsonSafe = value => {
-    try {
-        return JSON.stringify(value);
-    } catch (err) {
-        return String(value);
-    }
-};
-
-const truncateText = (text, maxLen = 240) => {
-    if (!text || text.length <= maxLen) return text || '--';
-    return `${text.slice(0, maxLen)}...`;
 };
 
 const formatDurationMinutes = (value) => {
@@ -284,7 +270,6 @@ const extractLatestHistory = payload => {
 
 const App = () => {
     const [events, setEvents] = useState([]);
-    const [apiLogs, setApiLogs] = useState([]);
     const [connectionText, setConnectionText] = useState('Waiting for connection');
 
     const [isSleeping, setIsSleeping] = useState(null);
@@ -299,6 +284,10 @@ const App = () => {
     const [spo2, setSpo2] = useState(null);
     const [temperature, setTemperature] = useState(null);
     const [hrv, setHrv] = useState(null);
+    const [stressScore, setStressScore] = useState(null);
+    const [stressLevel, setStressLevel] = useState('--');
+    const [anxietyScore, setAnxietyScore] = useState(null);
+    const [anxietyLevel, setAnxietyLevel] = useState('--');
 
     const [stepHistory, setStepHistory] = useState([]);
     const [heartRateHistory, setHeartRateHistory] = useState([]);
@@ -318,10 +307,6 @@ const App = () => {
         setEvents(prev => [msg, ...prev].slice(0, MAX_EVENTS));
     };
 
-    const pushApiLog = (entry) => {
-        setApiLogs(prev => [entry, ...prev].slice(0, MAX_API_LOGS));
-    };
-
     const statusText = useMemo(() => {
         if (isSleeping === true) return 'Sleeping';
         if (isSleeping === false) return 'Awake';
@@ -329,44 +314,6 @@ const App = () => {
     }, [isSleeping]);
 
     const lastNightSession = useMemo(() => getLastNightSession(sleepHistory), [sleepHistory]);
-
-    const applyHealthStatusToUI = (healthStatus, timestampLike) => {
-        if (!healthStatus || typeof healthStatus !== 'object') return;
-
-        const pointTime = parseSdkDate(timestampLike) || new Date();
-        const nextSteps = toNumberOrNull(healthStatus?.steps);
-        const nextHeartRate = toNumberOrNull(healthStatus?.heartRate);
-        const nextSpo2 = toNumberOrNull(healthStatus?.spo2);
-        const nextTemperature = toNumberOrNull(healthStatus?.temperature);
-        const nextHrv = toNumberOrNull(healthStatus?.hrv);
-
-        if (nextSteps !== null) {
-            setSteps(nextSteps);
-            setStepHistory(prev => appendMetricPoint(prev, { time: pointTime, value: nextSteps }));
-        }
-
-        if (nextHeartRate !== null) {
-            setHeartRate(nextHeartRate);
-            setHeartRateHistory(prev => appendMetricPoint(prev, { time: pointTime, value: nextHeartRate }));
-        }
-
-        if (nextSpo2 !== null) {
-            setSpo2(nextSpo2);
-            setSpo2History(prev => appendMetricPoint(prev, { time: pointTime, value: nextSpo2 }));
-        }
-
-        if (nextTemperature !== null) {
-            setTemperature(nextTemperature);
-            setTemperatureHistory(prev => appendMetricPoint(prev, { time: pointTime, value: nextTemperature }));
-        }
-
-        if (nextHrv !== null) {
-            setHrv(nextHrv);
-            setHrvHistory(prev => appendMetricPoint(prev, { time: pointTime, value: nextHrv }));
-        }
-
-        setLastDataDate(formatLocalDateTime(pointTime));
-    };
 
     const requestInitialSync = () => {
         getSleepHistory(0);
@@ -446,61 +393,6 @@ const App = () => {
             endpoint: '/JC_band_data_dump',
             timeoutMs: 30000,
             retryCount: 0,
-            onRequest: meta => {
-                const body = meta?.request?.body;
-                applyHealthStatusToUI(body?.healthStatus, body?.timestamp);
-
-                const row = {
-                    time: new Date().toLocaleTimeString(),
-                    type: 'REQUEST',
-                    status: `attempt ${meta?.attempt}`,
-                    details: {
-                        url: meta?.url,
-                        retriesLeft: meta?.retriesLeft,
-                        request: meta?.request,
-                    },
-                };
-                pushApiLog(row);
-                pushEvent(`API Request | attempt ${meta?.attempt} | retriesLeft ${meta?.retriesLeft}`);
-                console.log('[BLE SDK][UPLOAD][REQUEST]', row.details);
-            },
-            onSuccess: (sentBody, meta) => {
-                const status = `${meta?.response?.status || 200} ${meta?.response?.statusText || ''}`.trim();
-                const row = {
-                    time: new Date().toLocaleTimeString(),
-                    type: 'SUCCESS',
-                    status,
-                    details: {
-                        url: meta?.url,
-                        request: meta?.request,
-                        response: meta?.response,
-                        sentBody,
-                    },
-                };
-                pushApiLog(row);
-                pushEvent(`API Success | ${status} | ${dataTypeName[sentBody?.dataType] || `Type-${sentBody?.dataType}`}`);
-                console.log('[BLE SDK][UPLOAD][SUCCESS]', row.details);
-            },
-            onError: (err, sentBody, meta) => {
-                const status = meta?.response?.status
-                    ? `${meta.response.status} ${meta?.response?.statusText || ''}`.trim()
-                    : 'NO_RESPONSE';
-                const row = {
-                    time: new Date().toLocaleTimeString(),
-                    type: 'ERROR',
-                    status,
-                    details: {
-                        message: err?.message,
-                        url: meta?.url,
-                        request: meta?.request,
-                        response: meta?.response,
-                        sentBody,
-                    },
-                };
-                pushApiLog(row);
-                pushEvent(`API Error | ${status} | ${err?.message || 'unknown'}`);
-                console.log('[BLE SDK][UPLOAD][ERROR]', row.details);
-            },
         });
 
         configureSleepLogic({
@@ -549,6 +441,26 @@ const App = () => {
                         const start = formatLocalDateTime(window?.start);
                         const end = formatLocalDateTime(window?.end);
                         setLastSleepWindowText(`${start} -> ${end}`);
+                    }
+
+                    const mentalWellness = payload?.mentalWellness;
+                    if (mentalWellness && typeof mentalWellness === 'object') {
+                        const nextStressScore = toNumberOrNull(mentalWellness.stressScore);
+                        const nextAnxietyScore = toNumberOrNull(mentalWellness.anxietyScore);
+
+                        if (nextStressScore !== null) {
+                            setStressScore(nextStressScore);
+                        }
+                        if (typeof mentalWellness.stressLevel === 'string') {
+                            setStressLevel(mentalWellness.stressLevel);
+                        }
+
+                        if (nextAnxietyScore !== null) {
+                            setAnxietyScore(nextAnxietyScore);
+                        }
+                        if (typeof mentalWellness.anxietyLevel === 'string') {
+                            setAnxietyLevel(mentalWellness.anxietyLevel);
+                        }
                     }
 
                     if (type === 27 || type === 81) {
@@ -659,6 +571,12 @@ const App = () => {
                     <Text style={styles.statusText}>SpO2: {formatMaybeNumber(spo2, ' %')}</Text>
                     <Text style={styles.statusText}>Temperature: {formatMaybeNumber(temperature, ' C')}</Text>
                     <Text style={styles.statusText}>HRV: {formatMaybeNumber(hrv)}</Text>
+                    <Text style={styles.statusText}>
+                        Stress: {formatMaybeNumber(stressScore)} ({stressLevel})
+                    </Text>
+                    <Text style={styles.statusText}>
+                        Anxiety: {formatMaybeNumber(anxietyScore)} ({anxietyLevel})
+                    </Text>
                 </View>
 
                 <Text style={styles.heading}>Vitals History (Local Time)</Text>
@@ -694,24 +612,6 @@ const App = () => {
                     ListEmptyComponent={<Text style={styles.emptyText}>No events yet</Text>}
                 />
 
-                <Text style={styles.heading}>API Upload Debug (Latest)</Text>
-                <FlatList
-                    data={apiLogs}
-                    keyExtractor={(_, index) => `api-${index}`}
-                    showsVerticalScrollIndicator={false}
-                    contentContainerStyle={styles.eventsContent}
-                    renderItem={({ item }) => (
-                        <View style={styles.eventItem}>
-                            <Text style={styles.eventText}>
-                                [{item.time}] {item.type} | {item.status}
-                            </Text>
-                            <Text style={styles.eventTextMuted}>
-                                {truncateText(toJsonSafe(item.details))}
-                            </Text>
-                        </View>
-                    )}
-                    ListEmptyComponent={<Text style={styles.emptyText}>No API logs yet</Text>}
-                />
             </View>
         </SafeAreaView>
     );
@@ -778,12 +678,6 @@ const styles = StyleSheet.create({
     eventText: {
         color: '#FFFFFF',
         fontSize: 13,
-    },
-
-    eventTextMuted: {
-        color: '#B5B5B5',
-        fontSize: 12,
-        marginTop: 6,
     },
 
     emptyText: {

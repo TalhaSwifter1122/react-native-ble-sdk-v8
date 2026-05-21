@@ -157,6 +157,10 @@ Auto-upload note:
 - `startAutoUpload()` now enriches outgoing payloads with `sleepContext` by default.
 - Use `startAutoUpload({ enableSleepContext: false })` to disable at startup.
 
+Mental wellness note:
+- Enriched payloads now include `mentalWellness` with `stressScore`, `stressLevel`, `anxietyScore`, and `anxietyLevel`.
+- The same fields are also copied into upload `healthStatus` so backend and app UI can use one schema.
+
 ---
 
 ## Event reference
