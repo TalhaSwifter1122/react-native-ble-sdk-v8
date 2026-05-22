@@ -22,6 +22,12 @@
     // nil means scan for all devices. NSNull means no pending scan.
     NSArray *_pendingScanServices;
     BOOL     _hasPendingScan;
+
+    // Connection flow guards:
+    // - _allowAutoReconnect prevents reconnect loops after intentional disconnect/switch
+    // - _pendingPeripheralToConnect allows clean handoff when switching devices
+    BOOL _allowAutoReconnect;
+    CBPeripheral *_pendingPeripheralToConnect;
 }
 @end
 @implementation NewBle
@@ -89,10 +95,28 @@
 {
     if (CentralManage.isScanning==YES)
         [self Stopscan];
-      activityPeripheral = peripheral;
-      activityPeripheral.delegate = self;
-      peripheral.delegate = self;
-     [CentralManage connectPeripheral:peripheral options:nil];
+
+    if (peripheral == nil) {
+        return;
+    }
+
+    // If another device is active, disconnect it first, then connect to the new target.
+    if (activityPeripheral &&
+        ![activityPeripheral.identifier isEqual:peripheral.identifier] &&
+        (activityPeripheral.state == CBPeripheralStateConnected ||
+         activityPeripheral.state == CBPeripheralStateConnecting)) {
+        _allowAutoReconnect = NO;
+        _pendingPeripheralToConnect = peripheral;
+        [CentralManage cancelPeripheralConnection:activityPeripheral];
+        return;
+    }
+
+    _pendingPeripheralToConnect = nil;
+    _allowAutoReconnect = YES;
+    activityPeripheral = peripheral;
+    activityPeripheral.delegate = self;
+    peripheral.delegate = self;
+    [CentralManage connectPeripheral:peripheral options:nil];
 }
 
 
@@ -201,6 +225,8 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
 }
 -(void)Disconnect
 {
+    _allowAutoReconnect = NO;
+    _pendingPeripheralToConnect = nil;
     if(activityPeripheral)
     [CentralManage cancelPeripheralConnection:activityPeripheral];
 }
@@ -322,11 +348,25 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
     
     NSString * strError = [NSString stringWithFormat:@"设备%@蓝牙断开连接:%@",peripheral.name,error.description];
     writeLogs(strError, @"Ble SDK Demo.txt");
-    if(error)
-    {
+    BOOL shouldReconnect = (error != nil &&
+                            _allowAutoReconnect &&
+                            activityPeripheral &&
+                            [activityPeripheral.identifier isEqual:peripheral.identifier] &&
+                            _pendingPeripheralToConnect == nil);
+
+    if (activityPeripheral && [activityPeripheral.identifier isEqual:peripheral.identifier]) {
+        activityPeripheral = nil;
+    }
+
+    if (_pendingPeripheralToConnect) {
+        CBPeripheral *nextPeripheral = _pendingPeripheralToConnect;
+        _pendingPeripheralToConnect = nil;
+        [self connectDevice:nextPeripheral];
+    } else if (shouldReconnect) {
         [central connectPeripheral:peripheral options:nil];
     }
-     [self.delegate Disconnect:error];
+
+    [self.delegate Disconnect:error];
 }
 #pragma mark CBPeripheralDelegate
 - (void)peripheralDidUpdateName:(CBPeripheral *)peripheral

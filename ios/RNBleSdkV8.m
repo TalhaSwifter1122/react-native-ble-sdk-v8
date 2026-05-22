@@ -44,6 +44,9 @@ static NSString *_pendingConnectUUID = nil;
     NSInteger _totalSleepTimeOffset;
     NSInteger _hrvOffset;
     NSInteger _stepsOffset;
+
+    // Track currently connected device so JS can distinguish payload source.
+    NSString *_activeDeviceUUID;
 }
 
 RCT_EXPORT_MODULE(RNBleSdkV8);
@@ -114,6 +117,7 @@ RCT_EXPORT_METHOD(startScan:(nullable NSString *)nameFilter) {
         // SetUpCentralManager is guarded — safe to call; creates manager only once
         [NewBle sharedManager].delegate = self;
         [[NewBle sharedManager] SetUpCentralManager];
+        [self emitAlreadyConnectedPeripherals];
         // startScanningWithServices defers automatically if not yet poweredOn
         [[NewBle sharedManager] startScanningWithServices:nil];
     });
@@ -288,11 +292,13 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
 
 - (void)CentralManagerPoweredOn {
     [self sendEventWithName:@"BlePowerStateChanged" body:@{ @"state": @"poweredOn" }];
+    [self emitAlreadyConnectedPeripherals];
 }
 
 - (void)EnableCommunicate {
     NSString *uuid = [NewBle sharedManager].activityPeripheral.identifier.UUIDString ?: @"";
     NSString *name = [NewBle sharedManager].activityPeripheral.name ?: @"";
+    _activeDeviceUUID = uuid;
     [self sendEventWithName:@"BleConnected"
                        body:@{ @"connected": @YES,
                                 @"uuid":      uuid,
@@ -300,6 +306,7 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
 }
 
 - (void)Disconnect:(NSError *_Nullable)error {
+    _activeDeviceUUID = nil;
     NSMutableDictionary *body = [NSMutableDictionary dictionary];
     body[@"connected"] = @NO;
     if (error) {
@@ -316,6 +323,34 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
 - (void)scanWithPeripheral:(CBPeripheral *)peripheral
          advertisementData:(NSDictionary<NSString *, id> *)advertisementData
                       RSSI:(NSNumber *)RSSI {
+
+    [self emitDiscoveredPeripheral:peripheral advertisementData:advertisementData RSSI:RSSI source:@"scan"];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+#pragma mark - Discovery helpers
+
+- (void)emitAlreadyConnectedPeripherals {
+    CBCentralManager *central = [NewBle sharedManager].CentralManage;
+    if (!central || central.state != CBManagerStatePoweredOn) {
+        return;
+    }
+
+    NSArray<CBUUID *> *serviceUUIDs = @[[CBUUID UUIDWithString:kServiceUUID]];
+    NSArray<CBPeripheral *> *connected = [central retrieveConnectedPeripheralsWithServices:serviceUUIDs];
+
+    for (CBPeripheral *peripheral in connected) {
+        [self emitDiscoveredPeripheral:peripheral
+                     advertisementData:@{}
+                                  RSSI:@0
+                                source:@"connected"];
+    }
+}
+
+- (void)emitDiscoveredPeripheral:(CBPeripheral *)peripheral
+               advertisementData:(NSDictionary<NSString *, id> *)advertisementData
+                            RSSI:(NSNumber *)RSSI
+                          source:(NSString *)source {
 
     NSString *name = peripheral.name
         ?: advertisementData[CBAdvertisementDataLocalNameKey]
@@ -340,6 +375,7 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
         @"uuid":  peripheral.identifier.UUIDString,
         @"name":  name,
         @"rssi":  RSSI,
+        @"source": source ?: @"scan",
         @"advertisementData": @{
             @"isConnectable": advertisementData[CBAdvertisementDataIsConnectable] ?: @NO,
             @"txPowerLevel":  advertisementData[CBAdvertisementDataTxPowerLevelKey] ?: @0,
@@ -365,6 +401,7 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
     NSMutableDictionary *payload = [NSMutableDictionary dictionary];
     payload[@"dataType"] = @(deviceData.dataType);
     payload[@"dataEnd"]  = @(deviceData.dataEnd);
+    payload[@"uuid"]     = peripheral.identifier.UUIDString ?: (_activeDeviceUUID ?: @"");
 
     // Deep-mutable copy so we can safely replace values
     NSDictionary *dicData = deviceData.dicData;
