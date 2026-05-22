@@ -30,6 +30,8 @@ import {
 
 // Event name constant — duplicated here to avoid a circular import with index.js
 const DATA_EVENT = 'BleData';
+const CONNECTED_EVENT = 'BleConnected';
+const DISCONNECTED_EVENT = 'BleDisconnected';
 
 const DATA_TYPE_NAMES = {
     24: 'RealTimeStep',
@@ -59,9 +61,11 @@ let _serverConfig = {
 };
 
 let _autoUploadSubscription = null;
+let _connectionEventSubscriptions = [];
 let _onUploadSuccess = null;
 let _onUploadError = null;
 let _onUploadRequest = null;
+let _activeBleDeviceUuid = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Configuration
@@ -116,7 +120,27 @@ export function startAutoUpload(options = {}) {
     if (_autoUploadSubscription) return; // already running
 
     const emitter = new NativeEventEmitter(NativeModules.RNBleSdkV8);
+
+    if (_connectionEventSubscriptions.length === 0) {
+        _connectionEventSubscriptions = [
+            emitter.addListener(CONNECTED_EVENT, info => {
+                _activeBleDeviceUuid = typeof info?.uuid === 'string' ? info.uuid : null;
+            }),
+            emitter.addListener(DISCONNECTED_EVENT, info => {
+                const disconnectedUuid = typeof info?.uuid === 'string' ? info.uuid : null;
+                if (!_activeBleDeviceUuid || !disconnectedUuid || disconnectedUuid === _activeBleDeviceUuid) {
+                    _activeBleDeviceUuid = null;
+                }
+            }),
+        ];
+    }
+
     _autoUploadSubscription = emitter.addListener(DATA_EVENT, (payload) => {
+        const payloadUuid = typeof payload?.uuid === 'string' ? payload.uuid : null;
+        if (_activeBleDeviceUuid && payloadUuid && payloadUuid !== _activeBleDeviceUuid) {
+            return;
+        }
+
         const finalPayload = _serverConfig.enableSleepContext
             ? enrichBlePayloadWithSleepContext(payload)
             : payload;
@@ -130,6 +154,13 @@ export function stopAutoUpload() {
         _autoUploadSubscription.remove();
         _autoUploadSubscription = null;
     }
+
+    if (_connectionEventSubscriptions.length > 0) {
+        _connectionEventSubscriptions.forEach(sub => sub?.remove?.());
+        _connectionEventSubscriptions = [];
+    }
+
+    _activeBleDeviceUuid = null;
 }
 
 /** Enable/disable sleep-context enrichment for auto-upload payloads. */
@@ -343,6 +374,7 @@ function _buildServerBody(blePayload) {
     return {
         schemaVersion: '1.2',
         deviceId: _serverConfig.deviceId,
+        bleDeviceUuid: blePayload?.uuid || null,
         timestamp: new Date().toISOString(),
         dataType: Number(blePayload?.dataType ?? -1),
         dataTypeName: DATA_TYPE_NAMES[Number(blePayload?.dataType)] || 'Unknown',

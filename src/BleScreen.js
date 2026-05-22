@@ -90,12 +90,35 @@ export default function BleScreen() {
     const [uploadLog, setUploadLog] = useState([]);          // last few upload results
 
     const scanTimer = useRef(null);
+    const connectedIdRef = useRef(null);
+
+    const beginScan = useCallback(() => {
+        setDevices([]);
+        setIsScanning(true);
+        startScan();
+
+        clearTimeout(scanTimer.current);
+        scanTimer.current = setTimeout(() => {
+            stopScan();
+            setIsScanning(false);
+        }, SCAN_TIMEOUT_MS);
+    }, []);
 
     // ── Start auto-upload pipeline once on mount ──────────────────────────
     useEffect(() => {
         // This hooks into BleEvents.DATA and POSTs every packet automatically.
         startAutoUpload();
     }, []);
+
+    // Kick off an initial scan on screen mount so already-connected peripherals
+    // (emitted by native as source="connected") appear without extra taps.
+    useEffect(() => {
+        beginScan();
+        return () => {
+            clearTimeout(scanTimer.current);
+            stopScan();
+        };
+    }, [beginScan]);
 
     // ── BLE event listeners ───────────────────────────────────────────────
     useEffect(() => {
@@ -109,11 +132,13 @@ export default function BleScreen() {
 
         const onConnected = addBleListener(BleEvents.CONNECTED, (info) => {
             // native bridge now emits { connected, uuid, name }
-            setConnectedId(info?.uuid ?? null);
+            connectedIdRef.current = info?.uuid ?? null;
+            setConnectedId(connectedIdRef.current);
             setStatus('connected');
         });
 
         const onDisconnected = addBleListener(BleEvents.DISCONNECTED, () => {
+            connectedIdRef.current = null;
             setConnectedId(null);
             setStatus('disconnected');
             setIsSending(false);
@@ -125,6 +150,15 @@ export default function BleScreen() {
         });
 
         const onData = addBleListener(BleEvents.DATA, (payload) => {
+            const payloadUuid = typeof payload?.uuid === 'string' ? payload.uuid : null;
+            if (
+                connectedIdRef.current &&
+                payloadUuid &&
+                payloadUuid !== connectedIdRef.current
+            ) {
+                return;
+            }
+
             const typeLabel = DATA_TYPE_LABELS[payload.dataType] ?? `type ${payload.dataType}`;
             const label = `${typeLabel} @ ${new Date().toLocaleTimeString()}`;
             setUploadLog((prev) => [label, ...prev].slice(0, 8));
@@ -142,15 +176,8 @@ export default function BleScreen() {
 
     // ── Scan helpers ──────────────────────────────────────────────────────
     const handleStartScan = useCallback(() => {
-        setDevices([]);
-        setIsScanning(true);
-        startScan(); // no filter — show all nearby BLE devices
-
-        scanTimer.current = setTimeout(() => {
-            stopScan();
-            setIsScanning(false);
-        }, SCAN_TIMEOUT_MS);
-    }, []);
+        beginScan();
+    }, [beginScan]);
 
     const handleStopScan = useCallback(() => {
         stopScan();
@@ -167,6 +194,7 @@ export default function BleScreen() {
     const handleDisconnect = useCallback(() => {
         disconnect();
         setStatus('idle');
+        connectedIdRef.current = null;
         setConnectedId(null);
     }, []);
 

@@ -620,6 +620,7 @@ const App = () => {
 
     const paginationLocksRef = useRef({});
     const lastSyncedSleepEndRef = useRef(null);
+    const activeDeviceUuidRef = useRef(null);
 
     const [connectionText, setConnectionText] = useState('Waiting for device');
     const [streamState, setStreamState] = useState('idle');
@@ -683,6 +684,42 @@ const App = () => {
                 },
             ]),
         );
+    };
+
+    const resetDeviceDataState = () => {
+        paginationLocksRef.current = {};
+        lastSyncedSleepEndRef.current = null;
+
+        setSteps(null);
+        setCalories(null);
+        setDistance(null);
+        setHeartRate(null);
+        setSpo2(null);
+        setTemperature(null);
+        setHrv(null);
+        setStressScore(null);
+        setStressLevel('--');
+        setAnxietyScore(null);
+        setAnxietyLevel('--');
+
+        setBattery(null);
+        setDeviceVersion('--');
+
+        setSleepStatus('Unknown');
+        setSleepMinutes(null);
+        setSleepWindow('--');
+        setSleepHistory([]);
+
+        setDetailActivityHistory([]);
+        setSleepAndActivityHistory([]);
+        setWeeklyStepsSummary(null);
+        setWeeklySleepSummary(null);
+
+        setHeartRateHistory([]);
+        setSpo2History([]);
+        setTemperatureHistory([]);
+        setHrvHistory([]);
+        setStepHistory([]);
     };
 
     const requestNextPageIfNeeded = rawPayload => {
@@ -800,7 +837,17 @@ const App = () => {
 
         const listeners = [
             addBleListener(BleEvents.CONNECTED, device => {
-                const name = device?.name || device?.uuid || 'Band';
+                const uuid = typeof device?.uuid === 'string' ? device.uuid : null;
+                const previousUuid = activeDeviceUuidRef.current;
+
+                // New device session: clear stale values from previous band.
+                if (uuid && previousUuid && uuid !== previousUuid) {
+                    resetDeviceDataState();
+                }
+
+                activeDeviceUuidRef.current = uuid;
+
+                const name = device?.name || uuid || 'Band';
 
                 setConnectionText(`Connected: ${name}`);
                 setStreamState('live');
@@ -816,6 +863,12 @@ const App = () => {
 
             addBleListener(BleEvents.DISCONNECTED, device => {
                 const name = device?.name || device?.uuid || 'Band';
+                const disconnectedUuid = typeof device?.uuid === 'string' ? device.uuid : null;
+
+                if (!disconnectedUuid || disconnectedUuid === activeDeviceUuidRef.current) {
+                    activeDeviceUuidRef.current = null;
+                    resetDeviceDataState();
+                }
 
                 setConnectionText(`Disconnected: ${name}`);
                 setStreamState('stopped');
@@ -825,6 +878,17 @@ const App = () => {
 
             addBleListener(BleEvents.DATA, rawPayload => {
                 try {
+                    const payloadUuid = typeof rawPayload?.uuid === 'string' ? rawPayload.uuid : null;
+
+                    // Ignore packets from old/stale device sessions when switching bands.
+                    if (
+                        activeDeviceUuidRef.current &&
+                        payloadUuid &&
+                        payloadUuid !== activeDeviceUuidRef.current
+                    ) {
+                        return;
+                    }
+
                     requestNextPageIfNeeded(rawPayload);
 
                     const rawDataType = Number(rawPayload?.dataType);
