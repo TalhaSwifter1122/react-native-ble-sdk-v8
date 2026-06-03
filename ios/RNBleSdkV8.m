@@ -27,6 +27,12 @@
 // BLE UUIDs for the V8/JCVital device
 static NSString *const kServiceUUID   = @"FFF0";
 static NSString *const kSendCharUUID  = @"FFF6";
+static NSString *const kDefaultUploadBaseUrl = @"http://167.172.132.179:5000";
+static NSString *const kDefaultUploadEndpoint = @"/JC_band_data_dump";
+static NSString *const kDefaultUploadAuthToken = @"Bearer YOUR_TOKEN";
+static NSString *const kDefaultUploadDeviceId = @"test-device-001";
+static const NSTimeInterval kDefaultUploadTimeoutMs = 30000.0;
+static const NSInteger kDefaultUploadRetryCount = 0;
 
 // Optional name filter set from JS — nil means accept all devices
 static NSString *_nameFilter = nil;
@@ -47,6 +53,15 @@ static NSString *_pendingConnectUUID = nil;
 
     // Track currently connected device so JS can distinguish payload source.
     NSString *_activeDeviceUUID;
+
+    // Server-upload config (native-side, no RN fetch needed).
+    BOOL _autoUploadEnabled;
+    NSString *_uploadBaseUrl;
+    NSString *_uploadAuthToken;
+    NSString *_uploadDeviceId;
+    NSString *_uploadEndpoint;
+    NSTimeInterval _uploadTimeoutMs;
+    NSInteger _uploadRetryCount;
 }
 
 RCT_EXPORT_MODULE(RNBleSdkV8);
@@ -62,6 +77,7 @@ RCT_EXPORT_MODULE(RNBleSdkV8);
         @"BleConnectFailed",
         @"BleData",
         @"BlePowerStateChanged",
+        @"BleUploadStatus",
     ];
 }
 
@@ -72,6 +88,14 @@ RCT_EXPORT_MODULE(RNBleSdkV8);
 // the poweredOn state before the user ever calls startScan from JS.
 - (instancetype)init {
     if (self = [super init]) {
+        _autoUploadEnabled = NO;
+        _uploadBaseUrl = kDefaultUploadBaseUrl;
+        _uploadAuthToken = kDefaultUploadAuthToken;
+        _uploadDeviceId = kDefaultUploadDeviceId;
+        _uploadEndpoint = kDefaultUploadEndpoint;
+        _uploadTimeoutMs = kDefaultUploadTimeoutMs;
+        _uploadRetryCount = kDefaultUploadRetryCount;
+
         dispatch_async(dispatch_get_main_queue(), ^{
             [NewBle sharedManager].delegate = self;
             [[NewBle sharedManager] SetUpCentralManager];
@@ -281,6 +305,64 @@ RCT_EXPORT_METHOD(ppgControl:(int)ppgMode ppgStatus:(int)ppgStatus) {
 
 RCT_EXPORT_METHOD(clearAllHistoryData) {
     [self sendData:[[BleSDK_V8 sharedManager] ClearAllHistoryData]];
+}
+
+RCT_EXPORT_METHOD(configureServerUpload:(NSDictionary *)config) {
+    NSString *baseUrl = [self stringOrNil:config[@"baseUrl"]];
+    NSString *authToken = [self stringOrNil:config[@"authToken"]];
+    NSString *deviceId = [self stringOrNil:config[@"deviceId"]];
+    NSString *endpoint = [self stringOrNil:config[@"endpoint"]];
+    NSNumber *timeoutMs = [self numberOrNil:config[@"timeoutMs"]];
+    NSNumber *retryCount = [self numberOrNil:config[@"retryCount"]];
+
+    if (baseUrl.length > 0) {
+        _uploadBaseUrl = [self normalizedBaseURL:baseUrl];
+    }
+    if (authToken) {
+        _uploadAuthToken = authToken;
+    }
+    if (deviceId) {
+        _uploadDeviceId = deviceId;
+    }
+    if (endpoint.length > 0) {
+        _uploadEndpoint = [self normalizedEndpoint:endpoint];
+    }
+    if (timeoutMs) {
+        _uploadTimeoutMs = MAX(1000.0, [timeoutMs doubleValue]);
+    }
+    if (retryCount) {
+        _uploadRetryCount = MAX(0, [retryCount integerValue]);
+    }
+}
+
+RCT_EXPORT_METHOD(startNativeAutoUpload:(NSDictionary *)options) {
+    (void)options;
+    _autoUploadEnabled = YES;
+}
+
+RCT_EXPORT_METHOD(stopNativeAutoUpload) {
+    _autoUploadEnabled = NO;
+}
+
+RCT_EXPORT_METHOD(uploadDataNative:(NSDictionary *)blePayload) {
+    if (![blePayload isKindOfClass:[NSDictionary class]]) return;
+    NSDictionary *body = [self buildServerBodyFromBlePayload:blePayload];
+    [self postBody:body endpoint:nil];
+}
+
+RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary *)data) {
+    if (![endpoint isKindOfClass:[NSString class]] || endpoint.length == 0) return;
+
+    NSMutableDictionary *body = [NSMutableDictionary dictionary];
+    body[@"deviceId"] = _uploadDeviceId ?: @"";
+    body[@"timestamp"] = [self isoTimestampNow];
+
+    if ([data isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *safeData = [self jsonSafeDictionary:data];
+        [body addEntriesFromDictionary:safeData];
+    }
+
+    [self postBody:body endpoint:[self normalizedEndpoint:endpoint]];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -508,6 +590,11 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
 
     payload[@"data"] = mutableDic;
     [self sendEventWithName:@"BleData" body:payload];
+
+    if (_autoUploadEnabled) {
+        NSDictionary *body = [self buildServerBodyFromBlePayload:payload];
+        [self postBody:body endpoint:nil];
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -610,6 +697,398 @@ RCT_EXPORT_METHOD(clearAllHistoryData) {
         [result addObject:m];
     }
     return result;
+}
+
+#pragma mark - Native upload helpers
+
+- (NSString *)isoTimestampNow {
+    NSISO8601DateFormatter *fmt = [[NSISO8601DateFormatter alloc] init];
+    return [fmt stringFromDate:[NSDate date]];
+}
+
+- (nullable NSString *)stringOrNil:(id)value {
+    return [value isKindOfClass:[NSString class]] ? (NSString *)value : nil;
+}
+
+- (nullable NSNumber *)numberOrNil:(id)value {
+    return [value isKindOfClass:[NSNumber class]] ? (NSNumber *)value : nil;
+}
+
+- (NSString *)normalizedBaseURL:(NSString *)baseUrl {
+    NSString *trimmed = [baseUrl stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    while ([trimmed hasSuffix:@"/"]) {
+        trimmed = [trimmed substringToIndex:trimmed.length - 1];
+    }
+    return trimmed;
+}
+
+- (NSString *)normalizedEndpoint:(NSString *)endpoint {
+    NSString *trimmed = [endpoint stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0) return @"/";
+    return [trimmed hasPrefix:@"/"] ? trimmed : [@"/" stringByAppendingString:trimmed];
+}
+
+- (NSString *)resolvedURLStringWithEndpoint:(nullable NSString *)overrideEndpoint {
+    NSString *baseUrl = _uploadBaseUrl.length > 0 ? _uploadBaseUrl : kDefaultUploadBaseUrl;
+    NSString *endpoint = overrideEndpoint.length > 0
+        ? overrideEndpoint
+        : (_uploadEndpoint.length > 0 ? _uploadEndpoint : kDefaultUploadEndpoint);
+    return [NSString stringWithFormat:@"%@%@", [self normalizedBaseURL:baseUrl], [self normalizedEndpoint:endpoint]];
+}
+
+- (NSDictionary *)buildServerBodyFromBlePayload:(NSDictionary *)blePayload {
+    NSNumber *dataType = [blePayload[@"dataType"] isKindOfClass:[NSNumber class]]
+        ? blePayload[@"dataType"]
+        : @(-1);
+    NSString *dataTypeName = [self dataTypeNameFromNumber:dataType];
+    NSDictionary *safePayload = [self jsonSafeDictionary:blePayload];
+    NSDictionary *safeData = [blePayload[@"data"] isKindOfClass:[NSDictionary class]]
+        ? [self jsonSafeDictionary:blePayload[@"data"]]
+        : @{};
+    NSDictionary *healthStatus = [self buildHealthStatusFromData:safeData dataType:dataType];
+    NSDictionary *metrics = [self buildMetricsFromData:safeData];
+
+    return @{
+        @"schemaVersion": @"2.0-native",
+        @"deviceId": _uploadDeviceId ?: @"",
+        @"bleDeviceUuid": [self stringOrNil:blePayload[@"uuid"]] ?: @"",
+        @"timestamp": [self isoTimestampNow],
+        @"dataType": dataType,
+        @"dataTypeName": dataTypeName,
+        @"dataEnd": @([blePayload[@"dataEnd"] boolValue]),
+        @"healthStatus": healthStatus,
+        @"metrics": metrics,
+        @"data": safeData,
+        @"payload": safePayload,
+    };
+}
+
+- (id)valueOrNull:(id)value {
+    return value ?: [NSNull null];
+}
+
+- (nullable NSNumber *)numberFromValue:(id)value {
+    if ([value isKindOfClass:[NSNumber class]]) return value;
+    if ([value isKindOfClass:[NSString class]]) {
+        NSNumberFormatter *formatter = [[NSNumberFormatter alloc] init];
+        return [formatter numberFromString:value];
+    }
+    return nil;
+}
+
+- (nullable NSNumber *)firstNumberInDictionary:(NSDictionary *)dict keys:(NSArray<NSString *> *)keys {
+    if (![dict isKindOfClass:[NSDictionary class]]) return nil;
+    for (NSString *key in keys) {
+        NSNumber *number = [self numberFromValue:dict[key]];
+        if (number) return number;
+    }
+    return nil;
+}
+
+- (nullable NSDictionary *)lastDictionaryForKeys:(NSArray<NSString *> *)keys inData:(NSDictionary *)data {
+    if (![data isKindOfClass:[NSDictionary class]]) return nil;
+    for (NSString *key in keys) {
+        NSArray *array = [data[key] isKindOfClass:[NSArray class]] ? data[key] : nil;
+        if (array.count == 0) continue;
+        id last = array.lastObject;
+        if ([last isKindOfClass:[NSDictionary class]]) return last;
+    }
+    return nil;
+}
+
+- (nullable NSNumber *)lastNumberInArray:(NSArray *)array {
+    if (![array isKindOfClass:[NSArray class]] || array.count == 0) return nil;
+    for (NSInteger i = array.count - 1; i >= 0; i--) {
+        NSNumber *number = [self numberFromValue:array[i]];
+        if (number) return number;
+    }
+    return nil;
+}
+
+- (NSInteger)arrayCountForKeys:(NSArray<NSString *> *)keys inData:(NSDictionary *)data {
+    NSInteger count = 0;
+    if (![data isKindOfClass:[NSDictionary class]]) return count;
+    for (NSString *key in keys) {
+        NSArray *array = [data[key] isKindOfClass:[NSArray class]] ? data[key] : nil;
+        count += array.count;
+    }
+    return count;
+}
+
+- (NSDictionary *)buildHealthStatusFromData:(NSDictionary *)data dataType:(NSNumber *)dataType {
+    NSNumber *steps = [self firstNumberInDictionary:data keys:@[@"steps", @"step", @"stepCount", @"totalSteps"]];
+    NSNumber *calories = [self firstNumberInDictionary:data keys:@[@"calories", @"calorie"]];
+    NSNumber *distance = [self firstNumberInDictionary:data keys:@[@"distance"]];
+    NSNumber *heartRate = [self firstNumberInDictionary:data keys:@[@"heartRate", @"hr"]];
+    NSNumber *spo2 = [self firstNumberInDictionary:data keys:@[@"spo2"]];
+    NSNumber *temperature = [self firstNumberInDictionary:data keys:@[@"temperature"]];
+    NSNumber *hrv = [self firstNumberInDictionary:data keys:@[@"hrv"]];
+    NSNumber *stress = [self firstNumberInDictionary:data keys:@[@"stress"]];
+
+    NSDictionary *activity = [self lastDictionaryForKeys:@[@"arrayTotalActivityData", @"arrayDetailActivityData", @"arrayActivity"] inData:data];
+    if (!steps) steps = [self firstNumberInDictionary:activity keys:@[@"steps", @"step"]];
+    if (!calories) calories = [self firstNumberInDictionary:activity keys:@[@"calories", @"calorie"]];
+    if (!distance) distance = [self firstNumberInDictionary:activity keys:@[@"distance"]];
+
+    NSDictionary *singleHR = [self lastDictionaryForKeys:@[@"arraySingleHR"] inData:data];
+    if (!heartRate) heartRate = [self firstNumberInDictionary:singleHR keys:@[@"singleHR", @"heartRate", @"hr"]];
+
+    NSDictionary *continuousHR = [self lastDictionaryForKeys:@[@"arrayContinuousHR"] inData:data];
+    if (!heartRate && [continuousHR[@"arrayHR"] isKindOfClass:[NSArray class]]) {
+        heartRate = [self lastNumberInArray:continuousHR[@"arrayHR"]];
+    }
+
+    NSDictionary *manualSpo2 = [self lastDictionaryForKeys:@[@"arrayManualSpo2Data"] inData:data];
+    NSDictionary *autoSpo2 = [self lastDictionaryForKeys:@[@"arrayAutomaticSpo2Data", @"arraySpo2"] inData:data];
+    if (!spo2) spo2 = [self firstNumberInDictionary:manualSpo2 keys:@[@"manualSpo2Data", @"spo2"]];
+    if (!spo2) spo2 = [self firstNumberInDictionary:autoSpo2 keys:@[@"automaticSpo2Data", @"spo2"]];
+
+    NSDictionary *temp = [self lastDictionaryForKeys:@[@"arrayTemperatureData", @"arrayemperatureData", @"arrayTemperature"] inData:data];
+    if (!temperature) temperature = [self firstNumberInDictionary:temp keys:@[@"temperature", @"bodyTemperature", @"axillaryTemperature"]];
+
+    NSDictionary *hrvRecord = [self lastDictionaryForKeys:@[@"arrayHRVData"] inData:data];
+    if (!hrv) hrv = [self firstNumberInDictionary:hrvRecord keys:@[@"hrv"]];
+    if (!stress) stress = [self firstNumberInDictionary:hrvRecord keys:@[@"stress"]];
+    if (!heartRate) heartRate = [self firstNumberInDictionary:hrvRecord keys:@[@"heartRate", @"hr"]];
+
+    NSDictionary *sleep = [self lastDictionaryForKeys:@[@"arrayDetailSleepAndActivityData", @"arrayDetailSleepData"] inData:data];
+    NSNumber *sleepMinutes = [self firstNumberInDictionary:sleep keys:@[@"totalSleepTime", @"sleepTotalTime", @"totalMinutes"]];
+    NSNumber *awakeMinutes = [self firstNumberInDictionary:sleep keys:@[@"awakeDurationMinutes"]];
+    NSString *sleepStart = [self stringOrNil:sleep[@"startTime_SleepData"]]
+        ?: [self stringOrNil:sleep[@"startTime"]]
+        ?: [self stringOrNil:sleep[@"startDate"]]
+        ?: [self stringOrNil:sleep[@"date"]];
+
+    return @{
+        @"isSleeping": [NSNull null],
+        @"steps": [self valueOrNull:steps],
+        @"calories": [self valueOrNull:calories],
+        @"distance": [self valueOrNull:distance],
+        @"heartRate": [self valueOrNull:heartRate],
+        @"spo2": [self valueOrNull:spo2],
+        @"temperature": [self valueOrNull:temperature],
+        @"hrv": [self valueOrNull:hrv],
+        @"stress": [self valueOrNull:stress],
+        @"sleepMinutes": [self valueOrNull:sleepMinutes],
+        @"awakeMinutes": [self valueOrNull:awakeMinutes],
+        @"lastSleepStart": [self valueOrNull:sleepStart],
+        @"sourceDataType": dataType ?: @(-1),
+    };
+}
+
+- (NSDictionary *)buildMetricsFromData:(NSDictionary *)data {
+    return @{
+        @"records": @{
+            @"sleep": @([self arrayCountForKeys:@[@"arrayDetailSleepData", @"arrayDetailSleepAndActivityData"] inData:data]),
+            @"activity": @([self arrayCountForKeys:@[@"arrayTotalActivityData", @"arrayDetailActivityData", @"arrayActivity"] inData:data]),
+            @"heartRateContinuous": @([self arrayCountForKeys:@[@"arrayContinuousHR"] inData:data]),
+            @"heartRateSingle": @([self arrayCountForKeys:@[@"arraySingleHR"] inData:data]),
+            @"spo2Automatic": @([self arrayCountForKeys:@[@"arrayAutomaticSpo2Data", @"arraySpo2"] inData:data]),
+            @"spo2Manual": @([self arrayCountForKeys:@[@"arrayManualSpo2Data"] inData:data]),
+            @"temperature": @([self arrayCountForKeys:@[@"arrayTemperatureData", @"arrayemperatureData", @"arrayTemperature"] inData:data]),
+            @"hrv": @([self arrayCountForKeys:@[@"arrayHRVData"] inData:data]),
+        },
+    };
+}
+
+- (NSString *)dataTypeNameFromNumber:(NSNumber *)dataType {
+    switch ([dataType integerValue]) {
+        case 24: return @"RealTimeStep";
+        case 25: return @"TotalActivityData";
+        case 26: return @"DetailActivityData";
+        case 27: return @"DetailSleepData";
+        case 28: return @"DynamicHR";
+        case 29: return @"StaticHR";
+        case 41: return @"HRVData";
+        case 45: return @"AutomaticSpo2Data";
+        case 46: return @"ManualSpo2Data";
+        case 48: return @"TemperatureData";
+        case 81: return @"DetailSleepAndActivityData";
+        default: return @"Unknown";
+    }
+}
+
+- (id)jsonSafeObject:(id)obj {
+    if (!obj || obj == [NSNull null]) return [NSNull null];
+
+    if ([obj isKindOfClass:[NSString class]] ||
+        [obj isKindOfClass:[NSNumber class]] ||
+        [obj isKindOfClass:[NSNull class]]) {
+        return obj;
+    }
+
+    if ([obj isKindOfClass:[NSDate class]]) {
+        NSISO8601DateFormatter *fmt = [[NSISO8601DateFormatter alloc] init];
+        return [fmt stringFromDate:(NSDate *)obj];
+    }
+
+    if ([obj isKindOfClass:[NSArray class]]) {
+        NSArray *arr = (NSArray *)obj;
+        NSMutableArray *safe = [NSMutableArray arrayWithCapacity:arr.count];
+        for (id item in arr) {
+            [safe addObject:[self jsonSafeObject:item] ?: [NSNull null]];
+        }
+        return safe;
+    }
+
+    if ([obj isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)obj;
+        NSMutableDictionary *safe = [NSMutableDictionary dictionaryWithCapacity:dict.count];
+        for (id key in dict) {
+            NSString *safeKey = [key isKindOfClass:[NSString class]] ? key : [key description];
+            safe[safeKey] = [self jsonSafeObject:dict[key]] ?: [NSNull null];
+        }
+        return safe;
+    }
+
+    return [obj description] ?: @"";
+}
+
+- (NSDictionary *)jsonSafeDictionary:(NSDictionary *)dict {
+    id safe = [self jsonSafeObject:dict];
+    return [safe isKindOfClass:[NSDictionary class]] ? safe : @{};
+}
+
+- (id)parsedResponseBodyFromData:(NSData *)data response:(NSHTTPURLResponse *)response {
+    if (!data || data.length == 0) return [NSNull null];
+
+    id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (json) return [self jsonSafeObject:json];
+
+    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    return text ?: [NSNull null];
+}
+
+- (void)sendUploadStatusEvent:(NSDictionary *)body {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self sendEventWithName:@"BleUploadStatus" body:body ?: @{}];
+    });
+}
+
+- (void)postBody:(NSDictionary *)body endpoint:(nullable NSString *)overrideEndpoint {
+    NSString *urlString = [self resolvedURLStringWithEndpoint:overrideEndpoint];
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) return;
+
+    NSInteger totalRetries = MAX(0, _uploadRetryCount);
+    [self postURL:url
+             body:[self jsonSafeDictionary:body ?: @{}]
+      totalRetries:totalRetries
+       retriesLeft:totalRetries];
+}
+
+- (void)postURL:(NSURL *)url
+           body:(NSDictionary *)body
+    totalRetries:(NSInteger)totalRetries
+     retriesLeft:(NSInteger)retriesLeft {
+
+    NSInteger attempt = MAX(1, totalRetries - retriesLeft + 1);
+
+    NSMutableDictionary *headers = [@{ @"Content-Type": @"application/json" } mutableCopy];
+    if (_uploadAuthToken.length > 0) {
+        headers[@"Authorization"] = _uploadAuthToken;
+    }
+
+    [self sendUploadStatusEvent:@{
+        @"stage": @"request",
+        @"attempt": @(attempt),
+        @"retriesLeft": @(retriesLeft),
+        @"url": url.absoluteString ?: @"",
+        @"request": @{ @"method": @"POST", @"headers": headers, @"body": body },
+    }];
+
+    NSError *jsonError = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:body options:0 error:&jsonError];
+    if (!jsonData) {
+        [self sendUploadStatusEvent:@{
+            @"stage": @"error",
+            @"attempt": @(attempt),
+            @"retriesLeft": @(retriesLeft),
+            @"url": url.absoluteString ?: @"",
+            @"message": jsonError.localizedDescription ?: @"Failed to serialize upload body",
+            @"request": @{ @"method": @"POST", @"headers": headers, @"body": body },
+            @"response": [NSNull null],
+        }];
+        return;
+    }
+
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    request.timeoutInterval = MAX(1.0, _uploadTimeoutMs / 1000.0);
+    request.HTTPBody = jsonData;
+    [headers enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *value, BOOL *stop) {
+        [request setValue:value forHTTPHeaderField:key];
+    }];
+
+    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    config.timeoutIntervalForRequest = request.timeoutInterval;
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:config];
+
+    __weak typeof(self) weakSelf = self;
+    NSURLSessionDataTask *task = [session dataTaskWithRequest:request
+                                            completionHandler:^(NSData * _Nullable data,
+                                                                NSURLResponse * _Nullable response,
+                                                                NSError * _Nullable error) {
+        __strong typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        NSHTTPURLResponse *httpResponse = [response isKindOfClass:[NSHTTPURLResponse class]]
+            ? (NSHTTPURLResponse *)response
+            : nil;
+
+        NSInteger statusCode = httpResponse.statusCode;
+        BOOL ok = (statusCode >= 200 && statusCode < 300) && (error == nil);
+
+        id responseBody = [strongSelf parsedResponseBodyFromData:data response:httpResponse];
+        NSDictionary *responseMeta = httpResponse
+            ? @{ @"ok": @(ok),
+                 @"status": @(statusCode),
+                 @"statusText": [NSHTTPURLResponse localizedStringForStatusCode:statusCode] ?: @"",
+                 @"headers": [strongSelf jsonSafeObject:httpResponse.allHeaderFields ?: @{}],
+                 @"body": responseBody ?: [NSNull null] }
+            : (NSDictionary *)[NSNull null];
+
+        if (ok) {
+            [strongSelf sendUploadStatusEvent:@{
+                @"stage": @"success",
+                @"attempt": @(attempt),
+                @"retriesLeft": @(retriesLeft),
+                @"url": url.absoluteString ?: @"",
+                @"request": @{ @"method": @"POST", @"headers": headers, @"body": body },
+                @"response": responseMeta,
+            }];
+            [session finishTasksAndInvalidate];
+            return;
+        }
+
+        if (retriesLeft > 0) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                           dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                [strongSelf postURL:url body:body totalRetries:totalRetries retriesLeft:retriesLeft - 1];
+            });
+            [session finishTasksAndInvalidate];
+            return;
+        }
+
+        NSString *message = error.localizedDescription;
+        if (message.length == 0) {
+            message = [NSString stringWithFormat:@"Server responded %ld", (long)statusCode];
+        }
+
+        [strongSelf sendUploadStatusEvent:@{
+            @"stage": @"error",
+            @"attempt": @(attempt),
+            @"retriesLeft": @(retriesLeft),
+            @"url": url.absoluteString ?: @"",
+            @"message": message,
+            @"request": @{ @"method": @"POST", @"headers": headers, @"body": body },
+            @"response": responseMeta ?: [NSNull null],
+        }];
+
+        [session finishTasksAndInvalidate];
+    }];
+
+    [task resume];
 }
 
 @end

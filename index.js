@@ -155,11 +155,7 @@ export function getMacAddress() { RNBleSdkV8.getMacAddress(); }
 
 function callHistoryCommand(nativeMethod, mode = 0, startDate = null) {
     const iso = startDate instanceof Date ? startDate.toISOString() : null;
-    if (iso) {
-        nativeMethod(mode, iso);
-    } else {
-        nativeMethod(mode);
-    }
+    nativeMethod(mode, iso);
 }
 
 /**

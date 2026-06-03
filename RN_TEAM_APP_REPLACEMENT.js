@@ -13,7 +13,6 @@ import BleScreen from 'react-native-ble-sdk-v8/src/BleScreen';
 import {
     BleEvents,
     addBleListener,
-    configureServer,
     startAutoUpload,
     stopAutoUpload,
     setRealtimeData,
@@ -816,15 +815,6 @@ const App = () => {
 
     useEffect(() => {
         RNBootSplash.hide({ fade: true });
-
-        configureServer({
-            baseUrl: 'http://167.172.132.179:5000',
-            authToken: 'Bearer YOUR_TOKEN',
-            deviceId: 'test-device-001',
-            endpoint: '/JC_band_data_dump',
-            timeoutMs: 30000,
-            retryCount: 0,
-        });
 
         configureSleepLogic({
             awakeWindowToIgnoreMinutes: 5,
