@@ -295,6 +295,13 @@ RCT_EXPORT_METHOD(getDetailActivityData:(int)mode startDateISO:(nullable NSStrin
                     withStartDate:[self dateFromISOString:iso]]];
 }
 
+RCT_EXPORT_METHOD(getActivityModeHistory:(int)mode startDateISO:(nullable NSString *)iso) {
+    [self sendData:[[BleSDK_V8 sharedManager]
+                    GetActivityModeDataWithMode:mode
+                    withStartDate:[self dateFromISOString:iso]
+                    needMETS:YES]];
+}
+
 RCT_EXPORT_METHOD(setRealtimeData:(int)dataType) {
     [self sendData:[[BleSDK_V8 sharedManager] RealTimeDataWithType:dataType]];
 }
@@ -584,6 +591,14 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
             break;
         }
 
+        // RR / PPI interval data
+        case realtimeRRIntervalData_V8:
+        case realtimePPIData_V8:
+        case ppiData_V8: {
+            [self normalizeRRIntervalFields:mutableDic];
+            break;
+        }
+
         default:
             break;
     }
@@ -660,6 +675,24 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         [result addObject:m];
     }
     return result;
+}
+
+- (void)normalizeRRIntervalFields:(NSMutableDictionary *)data {
+    NSNumber *interval = [self firstNumberInDictionary:data
+                                                  keys:@[@"RRIntervalData",
+                                                         @"rrIntervalData",
+                                                         @"rrInterval",
+                                                         @"rr",
+                                                         @"RR",
+                                                         @"ppi",
+                                                         @"PPI",
+                                                         @"ppiData",
+                                                         @"PPIData"]];
+    if (!interval) return;
+
+    data[@"rrInterval"] = interval;
+    data[@"RRIntervalData"] = interval;
+    data[@"ppi"] = interval;
 }
 
 /**
@@ -823,12 +856,28 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
     NSNumber *spo2 = [self firstNumberInDictionary:data keys:@[@"spo2"]];
     NSNumber *temperature = [self firstNumberInDictionary:data keys:@[@"temperature"]];
     NSNumber *hrv = [self firstNumberInDictionary:data keys:@[@"hrv"]];
+    NSNumber *rrInterval = [self firstNumberInDictionary:data
+                                                    keys:@[@"RRIntervalData",
+                                                           @"rrIntervalData",
+                                                           @"rrInterval",
+                                                           @"rr",
+                                                           @"RR",
+                                                           @"ppi",
+                                                           @"PPI",
+                                                           @"ppiData",
+                                                           @"PPIData"]];
     NSNumber *stress = [self firstNumberInDictionary:data keys:@[@"stress"]];
 
     NSDictionary *activity = [self lastDictionaryForKeys:@[@"arrayTotalActivityData", @"arrayDetailActivityData", @"arrayActivity"] inData:data];
     if (!steps) steps = [self firstNumberInDictionary:activity keys:@[@"steps", @"step"]];
     if (!calories) calories = [self firstNumberInDictionary:activity keys:@[@"calories", @"calorie"]];
     if (!distance) distance = [self firstNumberInDictionary:activity keys:@[@"distance"]];
+
+    NSDictionary *activityMode = [self lastDictionaryForKeys:@[@"arrayActivityModeData", @"arrayActivityMode"] inData:data];
+    if (!steps) steps = [self firstNumberInDictionary:activityMode keys:@[@"steps", @"step"]];
+    if (!calories) calories = [self firstNumberInDictionary:activityMode keys:@[@"calories", @"calorie"]];
+    if (!distance) distance = [self firstNumberInDictionary:activityMode keys:@[@"distance"]];
+    if (!heartRate) heartRate = [self firstNumberInDictionary:activityMode keys:@[@"heartRate", @"hr"]];
 
     NSDictionary *singleHR = [self lastDictionaryForKeys:@[@"arraySingleHR"] inData:data];
     if (!heartRate) heartRate = [self firstNumberInDictionary:singleHR keys:@[@"singleHR", @"heartRate", @"hr"]];
@@ -851,6 +900,31 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
     if (!stress) stress = [self firstNumberInDictionary:hrvRecord keys:@[@"stress"]];
     if (!heartRate) heartRate = [self firstNumberInDictionary:hrvRecord keys:@[@"heartRate", @"hr"]];
 
+    NSDictionary *rrRecord = [self lastDictionaryForKeys:@[@"arrayPPIData",
+                                                           @"arrayPpiData",
+                                                           @"arrayPPI",
+                                                           @"arrayPpi",
+                                                           @"arrayRRIntervalData",
+                                                           @"arrayRRIntervals",
+                                                           @"arrayRRInterval",
+                                                           @"ppiData",
+                                                           @"ppi",
+                                                           @"rrData",
+                                                           @"RRIntervalData"] inData:data];
+    if (!rrInterval) {
+        rrInterval = [self firstNumberInDictionary:rrRecord
+                                              keys:@[@"rrInterval",
+                                                     @"RRIntervalData",
+                                                     @"rrIntervalData",
+                                                     @"rr",
+                                                     @"RR",
+                                                     @"ppi",
+                                                     @"PPI",
+                                                     @"ppiData",
+                                                     @"PPIData",
+                                                     @"value"]];
+    }
+
     NSDictionary *sleep = [self lastDictionaryForKeys:@[@"arrayDetailSleepAndActivityData", @"arrayDetailSleepData"] inData:data];
     NSNumber *sleepMinutes = [self firstNumberInDictionary:sleep keys:@[@"totalSleepTime", @"sleepTotalTime", @"totalMinutes"]];
     NSNumber *awakeMinutes = [self firstNumberInDictionary:sleep keys:@[@"awakeDurationMinutes"]];
@@ -868,6 +942,7 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         @"spo2": [self valueOrNull:spo2],
         @"temperature": [self valueOrNull:temperature],
         @"hrv": [self valueOrNull:hrv],
+        @"rrInterval": [self valueOrNull:rrInterval],
         @"stress": [self valueOrNull:stress],
         @"sleepMinutes": [self valueOrNull:sleepMinutes],
         @"awakeMinutes": [self valueOrNull:awakeMinutes],
@@ -881,12 +956,24 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         @"records": @{
             @"sleep": @([self arrayCountForKeys:@[@"arrayDetailSleepData", @"arrayDetailSleepAndActivityData"] inData:data]),
             @"activity": @([self arrayCountForKeys:@[@"arrayTotalActivityData", @"arrayDetailActivityData", @"arrayActivity"] inData:data]),
+            @"activityMode": @([self arrayCountForKeys:@[@"arrayActivityModeData", @"arrayActivityMode"] inData:data]),
             @"heartRateContinuous": @([self arrayCountForKeys:@[@"arrayContinuousHR"] inData:data]),
             @"heartRateSingle": @([self arrayCountForKeys:@[@"arraySingleHR"] inData:data]),
             @"spo2Automatic": @([self arrayCountForKeys:@[@"arrayAutomaticSpo2Data", @"arraySpo2"] inData:data]),
             @"spo2Manual": @([self arrayCountForKeys:@[@"arrayManualSpo2Data"] inData:data]),
             @"temperature": @([self arrayCountForKeys:@[@"arrayTemperatureData", @"arrayemperatureData", @"arrayTemperature"] inData:data]),
             @"hrv": @([self arrayCountForKeys:@[@"arrayHRVData"] inData:data]),
+            @"rr": @([self arrayCountForKeys:@[@"arrayPPIData",
+                                               @"arrayPpiData",
+                                               @"arrayPPI",
+                                               @"arrayPpi",
+                                               @"arrayRRIntervalData",
+                                               @"arrayRRIntervals",
+                                               @"arrayRRInterval",
+                                               @"ppiData",
+                                               @"ppi",
+                                               @"rrData",
+                                               @"RRIntervalData"] inData:data]),
         },
     };
 }
@@ -899,11 +986,17 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         case 27: return @"DetailSleepData";
         case 28: return @"DynamicHR";
         case 29: return @"StaticHR";
+        case 30: return @"ActivityModeData";
         case 41: return @"HRVData";
         case 45: return @"AutomaticSpo2Data";
         case 46: return @"ManualSpo2Data";
         case 48: return @"TemperatureData";
         case 81: return @"DetailSleepAndActivityData";
+        case 66: return @"OpenRRInterval";
+        case 67: return @"CloseRRInterval";
+        case 68: return @"RealtimeRRIntervalData";
+        case 69: return @"RealtimePPIData";
+        case 82: return @"PPIData";
         default: return @"Unknown";
     }
 }

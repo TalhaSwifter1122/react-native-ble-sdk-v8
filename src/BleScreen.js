@@ -35,6 +35,7 @@ import {
     BleEvents,
     connect,
     disconnect,
+    getActivityModeHistory,
     getContinuousHRHistory,
     getDetailActivityData,
     getHRVHistory,
@@ -57,24 +58,27 @@ const SCAN_TIMEOUT_MS = 10_000; // auto-stop scan after 10 s
 // dataType integer → human-readable label
 // (mirrors the enum in the native BleSDK_V8 header)
 const DATA_TYPE_LABELS = {
-    1: 'Continuous HR',
-    2: 'Single HR',
-    3: 'Auto SpO2',
-    4: 'Manual SpO2',
-    5: 'Sleep Detail',
-    6: 'Sleep + Activity',
-    7: 'Temperature',
-    8: 'Realtime Step',
-    9: 'HRV',
-    10: 'PPI',
-    11: 'Total Activity',
-    12: 'Detail Activity',
-    13: 'Device Time',
-    14: 'Personal Info',
-    15: 'Battery',
-    16: 'Version',
-    17: 'Step Goal',
-    18: 'MAC Address',
+    0: 'Device Time',
+    2: 'Personal Info',
+    7: 'Step Goal',
+    9: 'Battery',
+    10: 'MAC Address',
+    11: 'Version',
+    24: 'Realtime Step',
+    25: 'Total Activity',
+    26: 'Detail Activity',
+    27: 'Sleep Detail',
+    28: 'Continuous HR',
+    29: 'Single HR',
+    30: 'Activity Mode',
+    41: 'HRV',
+    45: 'Auto SpO2',
+    46: 'Manual SpO2',
+    48: 'Temperature',
+    68: 'Realtime RR',
+    69: 'Realtime PPI',
+    81: 'Sleep + Activity',
+    82: 'PPI / RR',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -223,6 +227,7 @@ export default function BleScreen() {
             getPPIHistory(0);
             getTotalActivityData(0);
             getDetailActivityData(0);
+            getActivityModeHistory(0);
         } catch (err) {
             Alert.alert('Error', err.message);
         }

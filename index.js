@@ -206,6 +206,10 @@ export function getDetailActivityData(mode = 0, startDate = null) {
     callHistoryCommand(RNBleSdkV8.getDetailActivityData, mode, startDate);
 }
 
+export function getActivityModeHistory(mode = 0, startDate = null) {
+    callHistoryCommand(RNBleSdkV8.getActivityModeHistory, mode, startDate);
+}
+
 /** Start real-time step + HR streaming (dataType 1 = on, 0 = off). */
 export function setRealtimeData(enabled) {
     RNBleSdkV8.setRealtimeData(enabled ? 1 : 0);
@@ -281,6 +285,7 @@ export default {
     getPPIHistory,
     getTotalActivityData,
     getDetailActivityData,
+    getActivityModeHistory,
     setRealtimeData,
     ppgControl,
     clearAllHistoryData,

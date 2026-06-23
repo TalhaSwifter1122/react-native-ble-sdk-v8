@@ -18,22 +18,27 @@ import {
     setRealtimeData,
     configureSleepLogic,
     processSleepPayload,
+    getDeviceTime,
+    getPersonalInfo,
     getSleepHistory,
     getSleepAndActivityHistory,
     getTotalActivityData,
+    getDetailActivityData,
+    getActivityModeHistory,
     getContinuousHRHistory,
     getSingleHRHistory,
     getAutomaticSpo2History,
     getManualSpo2History,
     getTemperatureHistory,
     getHRVHistory,
+    getPPIHistory,
     getBatteryLevel,
     getDeviceVersion,
+    getStepGoal,
+    getMacAddress,
 } from 'react-native-ble-sdk-v8';
 
 const MAX_EVENTS = 80;
-const MAX_HISTORY = 500;
-
 const SLEEP_RULES = {
     sleepStartHour: 21,
     sleepEndHour: 10,
@@ -228,8 +233,7 @@ const mergeHistoryEntries = (prev, incoming) => {
             const aTime = parseSdkDate(a.time)?.getTime() || 0;
             const bTime = parseSdkDate(b.time)?.getTime() || 0;
             return bTime - aTime;
-        })
-        .slice(0, MAX_HISTORY);
+        });
 };
 
 const mergeSleepRecords = (prev, incoming) => {
@@ -247,8 +251,7 @@ const mergeSleepRecords = (prev, incoming) => {
     });
 
     return [...dedupedMap.values()]
-        .sort((a, b) => getSleepRecordTimeValue(a) - getSleepRecordTimeValue(b))
-        .slice(-500);
+        .sort((a, b) => getSleepRecordTimeValue(a) - getSleepRecordTimeValue(b));
 };
 
 const extractSleepRecords = data => {
@@ -350,8 +353,7 @@ const mergeSleepActivityRecords = (prev, incoming) => {
             const aTime = getSleepActivityRecordStart(a)?.getTime() || 0;
             const bTime = getSleepActivityRecordStart(b)?.getTime() || 0;
             return aTime - bTime;
-        })
-        .slice(-500);
+        });
 };
 
 const getSleepStageMinutes = record => {
@@ -546,6 +548,99 @@ const extractRealtime = payload => {
     };
 };
 
+const RR_ARRAY_KEYS = [
+    'arrayPPIData',
+    'arrayPpiData',
+    'arrayPPI',
+    'arrayPpi',
+    'arrayRRIntervalData',
+    'arrayRRIntervals',
+    'arrayRRInterval',
+    'ppiData',
+    'ppi',
+    'rrData',
+    'RRIntervalData',
+];
+
+const extractRRRecords = data => {
+    if (!data) return [];
+
+    const records = [];
+
+    RR_ARRAY_KEYS.forEach(key => {
+        const value = data[key];
+
+        if (Array.isArray(value)) {
+            value.forEach(item => {
+                if (item && typeof item === 'object') {
+                    records.push(item);
+                } else if (item !== null && item !== undefined) {
+                    records.push({ rrInterval: item });
+                }
+            });
+        } else if (value && typeof value === 'object') {
+            records.push(value);
+        } else if (value !== null && value !== undefined) {
+            records.push({ rrInterval: value });
+        }
+    });
+
+    return records;
+};
+
+const getRRRecordValue = record => {
+    if (!record) return undefined;
+
+    return (
+        record.rrInterval ??
+        record.RRIntervalData ??
+        record.rrIntervalData ??
+        record.rr ??
+        record.RR ??
+        record.ppi ??
+        record.PPI ??
+        record.ppiData ??
+        record.PPIData ??
+        record.value
+    );
+};
+
+const getRRRecordTime = record => (
+    record?.date ??
+    record?.time ??
+    record?.measureTime ??
+    record?.measurementTime ??
+    record?.timestamp ??
+    new Date()
+);
+
+const mergeRawPackets = (prev, incoming) => {
+    const combined = [...prev, ...incoming];
+    const dedupedMap = new Map();
+
+    combined.forEach(item => {
+        const dataType = item?.dataType ?? 'unknown';
+        const uuid = item?.uuid ?? '';
+        const receivedAt = item?.receivedAt ?? '';
+        const data = item?.data ? JSON.stringify(item.data) : '';
+        const key = `${dataType}-${uuid}-${receivedAt}-${data}`;
+
+        if (!dedupedMap.has(key)) {
+            dedupedMap.set(key, item);
+        }
+    });
+
+    return [...dedupedMap.values()];
+};
+
+const getRawPacketCounts = packets => (
+    packets.reduce((counts, packet) => {
+        const key = String(packet?.dataType ?? 'unknown');
+        counts[key] = (counts[key] || 0) + 1;
+        return counts;
+    }, {})
+);
+
 const isInSleepTimeWindow = (date = new Date()) => {
     const hour = date.getHours();
     return hour >= SLEEP_RULES.sleepStartHour || hour <= SLEEP_RULES.sleepEndHour;
@@ -631,6 +726,7 @@ const App = () => {
     const [spo2, setSpo2] = useState(null);
     const [temperature, setTemperature] = useState(null);
     const [hrv, setHrv] = useState(null);
+    const [rrInterval, setRrInterval] = useState(null);
     const [stressScore, setStressScore] = useState(null);
     const [stressLevel, setStressLevel] = useState('--');
     const [anxietyScore, setAnxietyScore] = useState(null);
@@ -645,6 +741,7 @@ const App = () => {
     const [sleepHistory, setSleepHistory] = useState([]);
 
     const [detailActivityHistory, setDetailActivityHistory] = useState([]);
+    const [activityModeHistory, setActivityModeHistory] = useState([]);
     const [sleepAndActivityHistory, setSleepAndActivityHistory] = useState([]);
     const [weeklyStepsSummary, setWeeklyStepsSummary] = useState(null);
     const [weeklySleepSummary, setWeeklySleepSummary] = useState(null);
@@ -653,7 +750,9 @@ const App = () => {
     const [spo2History, setSpo2History] = useState([]);
     const [temperatureHistory, setTemperatureHistory] = useState([]);
     const [hrvHistory, setHrvHistory] = useState([]);
+    const [rrHistory, setRrHistory] = useState([]);
     const [stepHistory, setStepHistory] = useState([]);
+    const [rawPacketHistory, setRawPacketHistory] = useState([]);
 
     const pushEvent = msg => {
         setEvents(prev => [msg, ...prev].slice(0, MAX_EVENTS));
@@ -696,6 +795,7 @@ const App = () => {
         setSpo2(null);
         setTemperature(null);
         setHrv(null);
+        setRrInterval(null);
         setStressScore(null);
         setStressLevel('--');
         setAnxietyScore(null);
@@ -710,6 +810,7 @@ const App = () => {
         setSleepHistory([]);
 
         setDetailActivityHistory([]);
+        setActivityModeHistory([]);
         setSleepAndActivityHistory([]);
         setWeeklyStepsSummary(null);
         setWeeklySleepSummary(null);
@@ -718,7 +819,9 @@ const App = () => {
         setSpo2History([]);
         setTemperatureHistory([]);
         setHrvHistory([]);
+        setRrHistory([]);
         setStepHistory([]);
+        setRawPacketHistory([]);
     };
 
     const requestNextPageIfNeeded = rawPayload => {
@@ -739,6 +842,9 @@ const App = () => {
                 case 25:
                     getTotalActivityData(2);
                     break;
+                case 26:
+                    getDetailActivityData(2);
+                    break;
                 case 27:
                     getSleepHistory(2);
                     break;
@@ -747,6 +853,9 @@ const App = () => {
                     break;
                 case 29:
                     getSingleHRHistory(2);
+                    break;
+                case 30:
+                    getActivityModeHistory(2);
                     break;
                 case 41:
                     getHRVHistory(2);
@@ -761,8 +870,10 @@ const App = () => {
                     getTemperatureHistory(2);
                     break;
                 case 81:
-                case 82:
                     getSleepAndActivityHistory(2);
+                    break;
+                case 82:
+                    getPPIHistory(2);
                     break;
                 default:
                     break;
@@ -784,33 +895,49 @@ const App = () => {
         }, 3000);
 
         setTimeout(() => {
-            getContinuousHRHistory(0);
+            getDetailActivityData(0);
         }, 4500);
 
         setTimeout(() => {
-            getSingleHRHistory(0);
+            getActivityModeHistory(0);
         }, 6000);
 
         setTimeout(() => {
-            getAutomaticSpo2History(0);
+            getContinuousHRHistory(0);
         }, 7500);
 
         setTimeout(() => {
-            getManualSpo2History(0);
+            getSingleHRHistory(0);
         }, 9000);
 
         setTimeout(() => {
-            getTemperatureHistory(0);
+            getAutomaticSpo2History(0);
         }, 10500);
 
         setTimeout(() => {
-            getHRVHistory(0);
+            getManualSpo2History(0);
         }, 12000);
 
         setTimeout(() => {
+            getTemperatureHistory(0);
+        }, 13500);
+
+        setTimeout(() => {
+            getHRVHistory(0);
+        }, 15000);
+
+        setTimeout(() => {
+            getPPIHistory(0);
+        }, 16500);
+
+        setTimeout(() => {
+            getDeviceTime();
+            getPersonalInfo();
             getBatteryLevel();
             getDeviceVersion();
-        }, 13500);
+            getStepGoal();
+            getMacAddress();
+        }, 18000);
     };
 
     useEffect(() => {
@@ -884,6 +1011,15 @@ const App = () => {
                     const rawDataType = Number(rawPayload?.dataType);
                     const rawData = rawPayload?.data || {};
 
+                    setRawPacketHistory(prev =>
+                        mergeRawPackets(prev, [
+                            {
+                                ...rawPayload,
+                                receivedAt: new Date().toISOString(),
+                            },
+                        ]),
+                    );
+
                     if (rawDataType === 25) {
                         const totalRecords = asArray(rawData?.arrayTotalActivityData);
 
@@ -896,10 +1032,18 @@ const App = () => {
                         const activityRecords = asArray(rawData?.arrayDetailActivityData);
 
                         setDetailActivityHistory(prev => {
-                            const updated = [...prev, ...activityRecords].slice(-500);
+                            const updated = [...prev, ...activityRecords];
                             setWeeklyStepsSummary(calculateWeeklySteps(updated));
                             return updated;
                         });
+                    }
+
+                    if (rawDataType === 30) {
+                        const activityModeRecords = asArray(rawData?.arrayActivityModeData);
+
+                        if (activityModeRecords.length > 0) {
+                            setActivityModeHistory(prev => [...prev, ...activityModeRecords]);
+                        }
                     }
 
                     if (rawDataType === 27) {
@@ -929,7 +1073,7 @@ const App = () => {
                         });
                     }
 
-                    if (rawDataType === 81 || rawDataType === 82) {
+                    if (rawDataType === 81) {
                         const records = extractSleepAndActivityRecords(rawData);
 
                         if (records.length > 0) {
@@ -1056,6 +1200,24 @@ const App = () => {
                         }
                     });
 
+                    const rrRecords = [
+                        ...extractRRRecords(data),
+                        ...extractRRRecords(rawData),
+                    ];
+
+                    rrRecords.forEach(item => {
+                        const value = getRRRecordValue(item);
+                        const time = getRRRecordTime(item);
+
+                        if (value !== undefined) {
+                            const numericValue = toNumberOrNull(value);
+                            const nextValue = numericValue === null ? value : numericValue;
+
+                            setRrInterval(nextValue);
+                            addHistoryRecord(setRrHistory, nextValue, time);
+                        }
+                    });
+
                     const mental = payload?.mentalWellness || {};
                     const nextStress = toNumberOrNull(mental.stressScore);
                     const nextAnxiety = toNumberOrNull(mental.anxietyScore);
@@ -1117,6 +1279,19 @@ const App = () => {
             });
         };
     }, []);
+
+    const rawPacketCounts = getRawPacketCounts(rawPacketHistory);
+    const rawPacketTypeList = Object.entries(rawPacketCounts)
+        .sort(([a], [b]) => {
+            const aNumber = Number(a);
+            const bNumber = Number(b);
+
+            if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) {
+                return aNumber - bNumber;
+            }
+
+            return a.localeCompare(b);
+        });
 
     return (
         <SafeAreaView style={styles.container}>
@@ -1192,6 +1367,7 @@ const App = () => {
                     <MetricCard title="SpO2" value={spo2} unit="%" color="#29B6F6" />
                     <MetricCard title="Temperature" value={temperature} unit="C" />
                     <MetricCard title="HRV" value={hrv} />
+                    <MetricCard title="RR" value={rrInterval} unit="ms" />
                     <MetricCard title="Battery" value={battery} unit="%" color="#00C853" />
                     <MetricCard title="Stress" value={stressScore} unit="" color="#FFA726" />
                     <MetricCard title="Anxiety" value={anxietyScore} unit="" color="#FF7043" />
@@ -1223,6 +1399,32 @@ const App = () => {
 
                     <Text style={styles.sleepLabel}>Sleep History Records</Text>
                     <Text style={styles.sleepValue}>{sleepHistory.length}</Text>
+                </View>
+
+                <Text style={styles.sectionTitle}>All Synced Data</Text>
+
+                <View style={styles.infoCard}>
+                    <Text style={styles.infoText}>Raw Packets: {rawPacketHistory.length}</Text>
+                    <Text style={styles.infoText}>Sleep Records: {sleepHistory.length}</Text>
+                    <Text style={styles.infoText}>
+                        Sleep + Activity Records: {sleepAndActivityHistory.length}
+                    </Text>
+                    <Text style={styles.infoText}>
+                        Detail Activity Records: {detailActivityHistory.length}
+                    </Text>
+                    <Text style={styles.infoText}>
+                        Activity Mode Records: {activityModeHistory.length}
+                    </Text>
+                    <Text style={styles.infoText}>Heart Rate Records: {heartRateHistory.length}</Text>
+                    <Text style={styles.infoText}>SpO2 Records: {spo2History.length}</Text>
+                    <Text style={styles.infoText}>Temperature Records: {temperatureHistory.length}</Text>
+                    <Text style={styles.infoText}>HRV Records: {hrvHistory.length}</Text>
+                    <Text style={styles.infoText}>RR / PPI Records: {rrHistory.length}</Text>
+                    {rawPacketTypeList.length > 0 ? (
+                        <Text style={styles.infoText}>
+                            Packet Types: {rawPacketTypeList.map(([type, count]) => `${type}:${count}`).join(', ')}
+                        </Text>
+                    ) : null}
                 </View>
 
                 <Text style={styles.sectionTitle}>Weekly Sleep History</Text>
@@ -1325,6 +1527,42 @@ const App = () => {
                                 label="HRV"
                                 value={item.value}
                                 time={item.time}
+                            />
+                        ))
+                    )}
+                </View>
+
+                <Text style={styles.sectionTitle}>RR / PPI History</Text>
+
+                <View style={styles.historyCard}>
+                    {rrHistory.length === 0 ? (
+                        <Text style={styles.emptyText}>No RR / PPI History</Text>
+                    ) : (
+                        rrHistory.slice(0, 10).map((item, index) => (
+                            <HistoryRow
+                                key={`rr-${index}`}
+                                label="RR"
+                                value={item.value}
+                                unit="ms"
+                                time={item.time}
+                            />
+                        ))
+                    )}
+                </View>
+
+                <Text style={styles.sectionTitle}>Activity Mode History</Text>
+
+                <View style={styles.historyCard}>
+                    {activityModeHistory.length === 0 ? (
+                        <Text style={styles.emptyText}>No Activity Mode History</Text>
+                    ) : (
+                        activityModeHistory.slice(0, 10).map((item, index) => (
+                            <HistoryRow
+                                key={`activity-mode-${index}`}
+                                label={`Mode ${item.activityMode ?? item.mode ?? '--'}`}
+                                value={item.heartRate ?? item.step ?? item.calories ?? '--'}
+                                unit={item.heartRate ? 'bpm' : ''}
+                                time={item.date ?? item.startTime ?? item.time}
                             />
                         ))
                     )}
