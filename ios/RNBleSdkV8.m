@@ -486,17 +486,25 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
     DeviceData_V8 *deviceData = [[BleSDK_V8 sharedManager] DataParsingWithData:data];
     if (!deviceData) return;
 
+    NSString *packetTimestamp = [self isoTimestampNow];
+
     // Start with a mutable copy of the parsed dictionary
     NSMutableDictionary *payload = [NSMutableDictionary dictionary];
     payload[@"dataType"] = @(deviceData.dataType);
     payload[@"dataEnd"]  = @(deviceData.dataEnd);
     payload[@"uuid"]     = peripheral.identifier.UUIDString ?: (_activeDeviceUUID ?: @"");
+    payload[@"timestamp"] = packetTimestamp;
+    payload[@"packetTimestamp"] = packetTimestamp;
+    payload[@"receivedAt"] = packetTimestamp;
+    payload[@"sensorTimestamp"] = packetTimestamp;
 
     // Deep-mutable copy so we can safely replace values
     NSDictionary *dicData = deviceData.dicData;
     NSMutableDictionary *mutableDic = dicData
         ? [NSMutableDictionary dictionaryWithDictionary:dicData]
         : [NSMutableDictionary dictionary];
+    mutableDic[@"packetTimestamp"] = packetTimestamp;
+    mutableDic[@"receivedAt"] = packetTimestamp;
 
     // ── Apply transforms based on dataType ───────────────────────────────────
     switch (deviceData.dataType) {
@@ -596,6 +604,14 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         case realtimePPIData_V8:
         case ppiData_V8: {
             [self normalizeRRIntervalFields:mutableDic];
+            break;
+        }
+
+        // Real-time PPG packets do not include a persisted device-side time, so
+        // mark when the sample packet reached the phone.
+        case realtimePPGData_V8: {
+            mutableDic[@"ppgTimestamp"] = packetTimestamp;
+            mutableDic[@"measurementTime"] = packetTimestamp;
             break;
         }
 
@@ -773,6 +789,13 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
     NSNumber *dataType = [blePayload[@"dataType"] isKindOfClass:[NSNumber class]]
         ? blePayload[@"dataType"]
         : @(-1);
+    NSString *uploadedAt = [self isoTimestampNow];
+    NSString *packetTimestamp =
+        [self stringOrNil:blePayload[@"packetTimestamp"]]
+        ?: [self stringOrNil:blePayload[@"sensorTimestamp"]]
+        ?: [self stringOrNil:blePayload[@"receivedAt"]]
+        ?: [self stringOrNil:blePayload[@"timestamp"]]
+        ?: uploadedAt;
     NSString *dataTypeName = [self dataTypeNameFromNumber:dataType];
     NSDictionary *safePayload = [self jsonSafeDictionary:blePayload];
     NSDictionary *safeData = [blePayload[@"data"] isKindOfClass:[NSDictionary class]]
@@ -785,7 +808,11 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         @"schemaVersion": @"2.0-native",
         @"deviceId": _uploadDeviceId ?: @"",
         @"bleDeviceUuid": [self stringOrNil:blePayload[@"uuid"]] ?: @"",
-        @"timestamp": [self isoTimestampNow],
+        @"timestamp": packetTimestamp,
+        @"packetTimestamp": packetTimestamp,
+        @"receivedAt": packetTimestamp,
+        @"sensorTimestamp": packetTimestamp,
+        @"uploadedAt": uploadedAt,
         @"dataType": dataType,
         @"dataTypeName": dataTypeName,
         @"dataEnd": @([blePayload[@"dataEnd"] boolValue]),
@@ -996,6 +1023,13 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         case 67: return @"CloseRRInterval";
         case 68: return @"RealtimeRRIntervalData";
         case 69: return @"RealtimePPIData";
+        case 70: return @"RealtimePPGData";
+        case 71: return @"PPGStartSucceeded";
+        case 72: return @"PPGStartFailed";
+        case 73: return @"PPGResult";
+        case 74: return @"PPGStop";
+        case 75: return @"PPGQuit";
+        case 76: return @"PPGMeasurementProgress";
         case 82: return @"PPIData";
         default: return @"Unknown";
     }
