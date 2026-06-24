@@ -115,8 +115,10 @@ Each upload body includes:
 | `schemaVersion` | Native upload schema, currently `2.0-native` |
 | `deviceId` | Your configured app/user/device identifier |
 | `bleDeviceUuid` | Connected BLE peripheral UUID |
-| `timestamp`, `packetTimestamp`, `receivedAt`, `sensorTimestamp` | Time the BLE packet reached the phone, generated in ISO-8601 format |
-| `uploadedAt` | Time the SDK built the server upload request |
+| `timestamp`, `packetTimestamp`, `receivedAt`, `sensorTimestamp`, `collectedAt` | Time the BLE packet reached the phone, generated in full ISO-8601 format |
+| `timestampMs`, `packetTimestampMs`, `sensorTimestampMs`, `collectedAtMs` | Same packet collection time as Unix epoch milliseconds |
+| `collectedAtLocal` | Same packet collection time as a readable local string with clock time and timezone |
+| `uploadedAt`, `uploadedAtMs` | Time the SDK built the server upload request |
 | `dataType`, `dataTypeName`, `dataEnd` | Vendor SDK packet metadata |
 | `healthStatus` | SDK-derived latest steps, HR, SpO2, temperature, HRV, sleep summary |
 | `metrics.records` | Counts for records in this packet |
@@ -124,7 +126,10 @@ Each upload body includes:
 | `payload` | Full emitted BLE payload |
 
 Realtime PPG packets (`dataType: 70`) also include `data.ppgTimestamp` and
-`data.measurementTime`, both set to the same packet receive time.
+`data.measurementTime`, plus millisecond fields, all set to the same packet
+receive time. Realtime PPI/RR packets are normalized into `data.arrayPPIData`
+with `ppi`, `rrInterval`, `measurementTime`, `collectedAt`, and
+`collectedAtMs` on each record.
 
 For HTTP endpoints on iOS, add an App Transport Security exception in the host
 app's `Info.plist`, or use HTTPS in production.

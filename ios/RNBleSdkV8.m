@@ -487,6 +487,8 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
     if (!deviceData) return;
 
     NSString *packetTimestamp = [self isoTimestampNow];
+    NSString *packetLocalTimestamp = [self localTimestampNow];
+    NSNumber *packetTimestampMs = [self epochMillisecondsNow];
 
     // Start with a mutable copy of the parsed dictionary
     NSMutableDictionary *payload = [NSMutableDictionary dictionary];
@@ -497,6 +499,12 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
     payload[@"packetTimestamp"] = packetTimestamp;
     payload[@"receivedAt"] = packetTimestamp;
     payload[@"sensorTimestamp"] = packetTimestamp;
+    payload[@"timestampMs"] = packetTimestampMs;
+    payload[@"packetTimestampMs"] = packetTimestampMs;
+    payload[@"sensorTimestampMs"] = packetTimestampMs;
+    payload[@"collectedAt"] = packetTimestamp;
+    payload[@"collectedAtLocal"] = packetLocalTimestamp;
+    payload[@"collectedAtMs"] = packetTimestampMs;
 
     // Deep-mutable copy so we can safely replace values
     NSDictionary *dicData = deviceData.dicData;
@@ -505,6 +513,11 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         : [NSMutableDictionary dictionary];
     mutableDic[@"packetTimestamp"] = packetTimestamp;
     mutableDic[@"receivedAt"] = packetTimestamp;
+    mutableDic[@"timestampMs"] = packetTimestampMs;
+    mutableDic[@"packetTimestampMs"] = packetTimestampMs;
+    mutableDic[@"collectedAt"] = packetTimestamp;
+    mutableDic[@"collectedAtLocal"] = packetLocalTimestamp;
+    mutableDic[@"collectedAtMs"] = packetTimestampMs;
 
     // ── Apply transforms based on dataType ───────────────────────────────────
     switch (deviceData.dataType) {
@@ -603,7 +616,10 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         case realtimeRRIntervalData_V8:
         case realtimePPIData_V8:
         case ppiData_V8: {
-            [self normalizeRRIntervalFields:mutableDic];
+            [self normalizeRRIntervalFields:mutableDic
+                                  timestamp:packetTimestamp
+                             localTimestamp:packetLocalTimestamp
+                                timestampMs:packetTimestampMs];
             break;
         }
 
@@ -612,6 +628,8 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         case realtimePPGData_V8: {
             mutableDic[@"ppgTimestamp"] = packetTimestamp;
             mutableDic[@"measurementTime"] = packetTimestamp;
+            mutableDic[@"ppgTimestampMs"] = packetTimestampMs;
+            mutableDic[@"measurementTimeMs"] = packetTimestampMs;
             break;
         }
 
@@ -693,22 +711,175 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
     return result;
 }
 
-- (void)normalizeRRIntervalFields:(NSMutableDictionary *)data {
-    NSNumber *interval = [self firstNumberInDictionary:data
-                                                  keys:@[@"RRIntervalData",
-                                                         @"rrIntervalData",
-                                                         @"rrInterval",
-                                                         @"rr",
-                                                         @"RR",
-                                                         @"ppi",
-                                                         @"PPI",
-                                                         @"ppiData",
-                                                         @"PPIData"]];
+- (NSArray<NSString *> *)rrIntervalValueKeys {
+    return @[@"RRIntervalData",
+             @"rrIntervalData",
+             @"rrInterval",
+             @"rr",
+             @"RR",
+             @"ppi",
+             @"PPI",
+             @"ppiData",
+             @"PPIData",
+             @"value"];
+}
+
+- (NSArray<NSString *> *)rrIntervalArrayKeys {
+    return @[@"arrayPPIData",
+             @"arrayPpiData",
+             @"arrayPPI",
+             @"arrayPpi",
+             @"arrayRRIntervalData",
+             @"arrayRRIntervals",
+             @"arrayRRInterval",
+             @"ppiData",
+             @"ppi",
+             @"rrData",
+             @"RRIntervalData"];
+}
+
+- (NSArray<NSNumber *> *)numbersFromPPIValue:(id)value {
+    if (!value || value == [NSNull null]) return @[];
+
+    NSNumber *number = [self numberFromValue:value];
+    if (number) return @[number];
+
+    if ([value isKindOfClass:[NSArray class]]) {
+        NSMutableArray *numbers = [NSMutableArray array];
+        for (id item in (NSArray *)value) {
+            [numbers addObjectsFromArray:[self numbersFromPPIValue:item]];
+        }
+        return numbers;
+    }
+
+    return @[];
+}
+
+- (nullable NSNumber *)rrIntervalNumberFromDictionary:(NSDictionary *)dict {
+    if (![dict isKindOfClass:[NSDictionary class]]) return nil;
+
+    for (NSString *key in [self rrIntervalValueKeys]) {
+        NSArray<NSNumber *> *numbers = [self numbersFromPPIValue:dict[key]];
+        if (numbers.count > 0) return numbers.lastObject;
+    }
+
+    return nil;
+}
+
+- (NSString *)timestampFromPPIRecord:(NSDictionary *)record fallback:(NSString *)fallback {
+    if (![record isKindOfClass:[NSDictionary class]]) return fallback;
+
+    return [self stringOrNil:record[@"date"]]
+        ?: [self stringOrNil:record[@"time"]]
+        ?: [self stringOrNil:record[@"measureTime"]]
+        ?: [self stringOrNil:record[@"measurementTime"]]
+        ?: [self stringOrNil:record[@"timestamp"]]
+        ?: [self stringOrNil:record[@"packetTimestamp"]]
+        ?: [self stringOrNil:record[@"receivedAt"]]
+        ?: [self stringOrNil:record[@"collectedAt"]]
+        ?: fallback;
+}
+
+- (void)addPPIRecordsFromValue:(id)value
+                       records:(NSMutableArray *)records
+                     timestamp:(NSString *)timestamp
+                localTimestamp:(NSString *)localTimestamp
+                   timestampMs:(NSNumber *)timestampMs {
+    if (!value || value == [NSNull null]) return;
+
+    if ([value isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)value;
+        NSNumber *interval = [self rrIntervalNumberFromDictionary:dict];
+
+        if (interval) {
+            NSMutableDictionary *record = [NSMutableDictionary dictionaryWithDictionary:dict];
+            NSString *recordTime = [self timestampFromPPIRecord:dict fallback:timestamp];
+
+            record[@"ppi"] = interval;
+            record[@"PPI"] = interval;
+            record[@"rrInterval"] = interval;
+            record[@"RRIntervalData"] = interval;
+            record[@"measurementTime"] = recordTime;
+            record[@"timestamp"] = recordTime;
+            record[@"collectedAt"] = recordTime;
+            record[@"collectedAtLocal"] = [self stringOrNil:dict[@"collectedAtLocal"]] ?: localTimestamp;
+            record[@"collectedAtMs"] = [self numberFromValue:dict[@"collectedAtMs"]] ?: timestampMs;
+
+            [records addObject:record];
+            return;
+        }
+
+        for (NSString *key in [self rrIntervalArrayKeys]) {
+            [self addPPIRecordsFromValue:dict[key]
+                                 records:records
+                               timestamp:timestamp
+                          localTimestamp:localTimestamp
+                             timestampMs:timestampMs];
+        }
+        return;
+    }
+
+    NSArray<NSNumber *> *numbers = [self numbersFromPPIValue:value];
+    for (NSNumber *interval in numbers) {
+        [records addObject:@{
+            @"ppi": interval,
+            @"PPI": interval,
+            @"rrInterval": interval,
+            @"RRIntervalData": interval,
+            @"measurementTime": timestamp,
+            @"timestamp": timestamp,
+            @"collectedAt": timestamp,
+            @"collectedAtLocal": localTimestamp,
+            @"collectedAtMs": timestampMs,
+        }];
+    }
+}
+
+- (void)normalizeRRIntervalFields:(NSMutableDictionary *)data
+                        timestamp:(NSString *)timestamp
+                   localTimestamp:(NSString *)localTimestamp
+                      timestampMs:(NSNumber *)timestampMs {
+    NSMutableArray *records = [NSMutableArray array];
+
+    for (NSString *key in [self rrIntervalArrayKeys]) {
+        [self addPPIRecordsFromValue:data[key]
+                             records:records
+                           timestamp:timestamp
+                      localTimestamp:localTimestamp
+                           timestampMs:timestampMs];
+    }
+
+    NSNumber *rootInterval = [self rrIntervalNumberFromDictionary:data];
+    if (records.count == 0 && rootInterval) {
+        [records addObject:@{
+            @"ppi": rootInterval,
+            @"PPI": rootInterval,
+            @"rrInterval": rootInterval,
+            @"RRIntervalData": rootInterval,
+            @"measurementTime": timestamp,
+            @"timestamp": timestamp,
+            @"collectedAt": timestamp,
+            @"collectedAtLocal": localTimestamp,
+            @"collectedAtMs": timestampMs,
+        }];
+    }
+
+    if (records.count == 0) return;
+
+    NSDictionary *latest = records.lastObject;
+    NSNumber *interval = [self rrIntervalNumberFromDictionary:latest];
     if (!interval) return;
 
     data[@"rrInterval"] = interval;
     data[@"RRIntervalData"] = interval;
     data[@"ppi"] = interval;
+    data[@"PPI"] = interval;
+    data[@"arrayPPIData"] = records;
+    data[@"arrayRRIntervalData"] = records;
+    data[@"measurementTime"] = latest[@"measurementTime"] ?: timestamp;
+    data[@"collectedAt"] = latest[@"collectedAt"] ?: timestamp;
+    data[@"collectedAtLocal"] = latest[@"collectedAtLocal"] ?: localTimestamp;
+    data[@"collectedAtMs"] = latest[@"collectedAtMs"] ?: timestampMs;
 }
 
 /**
@@ -752,7 +923,20 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
 
 - (NSString *)isoTimestampNow {
     NSISO8601DateFormatter *fmt = [[NSISO8601DateFormatter alloc] init];
+    fmt.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
     return [fmt stringFromDate:[NSDate date]];
+}
+
+- (NSString *)localTimestampNow {
+    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+    fmt.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+    fmt.dateFormat = @"yyyy-MM-dd HH:mm:ss.SSS ZZZZZ";
+    return [fmt stringFromDate:[NSDate date]];
+}
+
+- (NSNumber *)epochMillisecondsNow {
+    NSTimeInterval seconds = [[NSDate date] timeIntervalSince1970];
+    return @((long long)llround(seconds * 1000.0));
 }
 
 - (nullable NSString *)stringOrNil:(id)value {
@@ -790,12 +974,23 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         ? blePayload[@"dataType"]
         : @(-1);
     NSString *uploadedAt = [self isoTimestampNow];
+    NSNumber *uploadedAtMs = [self epochMillisecondsNow];
     NSString *packetTimestamp =
         [self stringOrNil:blePayload[@"packetTimestamp"]]
+        ?: [self stringOrNil:blePayload[@"collectedAt"]]
         ?: [self stringOrNil:blePayload[@"sensorTimestamp"]]
         ?: [self stringOrNil:blePayload[@"receivedAt"]]
         ?: [self stringOrNil:blePayload[@"timestamp"]]
         ?: uploadedAt;
+    NSNumber *packetTimestampMs =
+        [self numberFromValue:blePayload[@"packetTimestampMs"]]
+        ?: [self numberFromValue:blePayload[@"collectedAtMs"]]
+        ?: [self numberFromValue:blePayload[@"sensorTimestampMs"]]
+        ?: [self numberFromValue:blePayload[@"timestampMs"]]
+        ?: uploadedAtMs;
+    NSString *packetLocalTimestamp =
+        [self stringOrNil:blePayload[@"collectedAtLocal"]]
+        ?: [self localTimestampNow];
     NSString *dataTypeName = [self dataTypeNameFromNumber:dataType];
     NSDictionary *safePayload = [self jsonSafeDictionary:blePayload];
     NSDictionary *safeData = [blePayload[@"data"] isKindOfClass:[NSDictionary class]]
@@ -812,7 +1007,14 @@ RCT_EXPORT_METHOD(uploadToEndpointNative:(NSString *)endpoint data:(NSDictionary
         @"packetTimestamp": packetTimestamp,
         @"receivedAt": packetTimestamp,
         @"sensorTimestamp": packetTimestamp,
+        @"timestampMs": packetTimestampMs,
+        @"packetTimestampMs": packetTimestampMs,
+        @"sensorTimestampMs": packetTimestampMs,
+        @"collectedAt": packetTimestamp,
+        @"collectedAtLocal": packetLocalTimestamp,
+        @"collectedAtMs": packetTimestampMs,
         @"uploadedAt": uploadedAt,
+        @"uploadedAtMs": uploadedAtMs,
         @"dataType": dataType,
         @"dataTypeName": dataTypeName,
         @"dataEnd": @([blePayload[@"dataEnd"] boolValue]),

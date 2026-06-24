@@ -101,6 +101,7 @@ const formatLocalDateTime = value => {
             day: 'numeric',
             hour: '2-digit',
             minute: '2-digit',
+            second: '2-digit',
         })
         : '--';
 };
@@ -593,6 +594,7 @@ const getRRRecordValue = record => {
 
     return (
         record.rrInterval ??
+        record.RRInterval ??
         record.RRIntervalData ??
         record.rrIntervalData ??
         record.rr ??
@@ -601,16 +603,22 @@ const getRRRecordValue = record => {
         record.PPI ??
         record.ppiData ??
         record.PPIData ??
+        record.ppiValue ??
+        record.rrValue ??
         record.value
     );
 };
 
 const getRRRecordTime = record => (
+    record?.measurementTime ??
+    record?.measureTime ??
+    record?.collectedAt ??
+    record?.packetTimestamp ??
+    record?.sensorTimestamp ??
+    record?.receivedAt ??
+    record?.timestamp ??
     record?.date ??
     record?.time ??
-    record?.measureTime ??
-    record?.measurementTime ??
-    record?.timestamp ??
     new Date()
 );
 
