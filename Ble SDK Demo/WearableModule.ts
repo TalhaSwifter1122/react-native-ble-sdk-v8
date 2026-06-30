@@ -45,6 +45,14 @@ export type ConnectionState =
     | 'connected'
     | 'disconnected';
 
+export type BluetoothState =
+    | 'unknown'
+    | 'resetting'
+    | 'unsupported'
+    | 'unauthorized'
+    | 'poweredOff'
+    | 'poweredOn';
+
 export interface DeviceFoundPayload {
     id: string;       // UUID — pass this to connectDevice()
     name: string;
@@ -285,6 +293,7 @@ import { useState, useEffect, useRef } from 'react';
 
 export function useWearable() {
     const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
+    const [bluetoothState, setBluetoothState] = useState<BluetoothState>('unknown');
     const [devices, setDevices] = useState<DeviceFoundPayload[]>([]);
     const [heartRate, setHeartRate] = useState<HeartRateRecord[]>([]);
     const [spo2, setSpo2] = useState<SpO2Record[]>([]);
@@ -314,6 +323,9 @@ export function useWearable() {
                     setDevices([]);
                     deviceMapRef.current.clear();
                 }
+            }),
+            WearableEmitter.addListener('onBluetoothStateChanged', (state: BluetoothState) => {
+                setBluetoothState(state);
             }),
             WearableEmitter.addListener('onDeviceFound', (device: DeviceFoundPayload) => {
                 deviceMapRef.current.set(device.id, device);
@@ -355,6 +367,7 @@ export function useWearable() {
 
     return {
         connectionState,
+        bluetoothState,
         isConnected: connectionState === 'connected',
         isScanning: connectionState === 'scanning',
         devices,

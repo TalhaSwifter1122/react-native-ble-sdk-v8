@@ -18,6 +18,8 @@
 -(void)ConnectFailedWithError:(nullable NSError *)error;
 -(void)EnableCommunicate;
 -(void)BleCommunicateWithPeripheral:(CBPeripheral*)Peripheral data:(NSData *)data;
+/** Called whenever CBCentralManager state changes */
+-(void)CentralManagerDidUpdateState:(NSInteger)state;
 /** Called when CBCentralManager reaches the poweredOn state and is ready to scan */
 -(void)CentralManagerPoweredOn;
 @end

@@ -9,7 +9,16 @@
 #import "NewBle.h"
 @interface NewBle()<CBCentralManagerDelegate,CBPeripheralDelegate>
 {
-    
+    // Services to scan for once the manager reaches poweredOn state.
+    // nil means scan for all devices. NSNull means no pending scan.
+    NSArray *_pendingScanServices;
+    BOOL     _hasPendingScan;
+
+    // Connection flow guards:
+    // - _allowAutoReconnect prevents reconnect loops after intentional disconnect/switch
+    // - _pendingPeripheralToConnect allows clean handoff when switching devices
+    BOOL _allowAutoReconnect;
+    CBPeripheral *_pendingPeripheralToConnect;
 }
 @end
 @implementation NewBle
@@ -26,7 +35,15 @@
 //设置为主设备
 - (void)SetUpCentralManager
 {
-    CentralManage = [[CBCentralManager alloc] initWithDelegate:self queue:nil];
+    if (CentralManage == nil) {
+        CentralManage = [[CBCentralManager alloc]
+            initWithDelegate:self
+                       queue:nil
+                     options:@{CBCentralManagerOptionRestoreIdentifierKey:
+                                   @"com.reactnativeblesdkv8.central"}];
+    } else {
+        CentralManage.delegate = self;
+    }
 }
 //设置为从设备
 - (void)SetUpPeripheralManager
@@ -54,19 +71,49 @@
 
 - (void)startScanningWithServices:(nullable NSArray<CBUUID *> *)serviceUUIDs
 {
+    if (CentralManage == nil) {
+        [self SetUpCentralManager];
+    }
     CentralManage.delegate = self;
-    [CentralManage scanForPeripheralsWithServices:serviceUUIDs options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@YES}];
+    if (CentralManage.state == CBManagerStatePoweredOn) {
+        [CentralManage scanForPeripheralsWithServices:serviceUUIDs
+                                              options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@YES}];
+    } else {
+        _pendingScanServices = serviceUUIDs;
+        _hasPendingScan = YES;
+    }
 }
 
 
 - (void)connectDevice:(CBPeripheral*)peripheral
 {
+    if (CentralManage == nil) {
+        [self SetUpCentralManager];
+    }
     if (CentralManage.isScanning==YES)
         [self Stopscan];
-      activityPeripheral = peripheral;
-      activityPeripheral.delegate = self;
-      peripheral.delegate = self;
-     [CentralManage connectPeripheral:peripheral options:nil];
+
+    if (peripheral == nil) {
+        return;
+    }
+
+    // If another device is active, disconnect it first, then connect to the new target.
+    if (activityPeripheral &&
+        ![activityPeripheral.identifier isEqual:peripheral.identifier] &&
+        (activityPeripheral.state == CBPeripheralStateConnected ||
+         activityPeripheral.state == CBPeripheralStateConnecting)) {
+        _allowAutoReconnect = NO;
+        _pendingPeripheralToConnect = peripheral;
+        [CentralManage cancelPeripheralConnection:activityPeripheral];
+        return;
+    }
+
+    _pendingPeripheralToConnect = nil;
+    _allowAutoReconnect = YES;
+    activityPeripheral = peripheral;
+    activityPeripheral.delegate = self;
+    peripheral.delegate = self;
+    [CentralManage connectPeripheral:peripheral options:nil];
 }
 
 
@@ -175,6 +222,8 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
 }
 -(void)Disconnect
 {
+    _allowAutoReconnect = NO;
+    _pendingPeripheralToConnect = nil;
     if(activityPeripheral)
     [CentralManage cancelPeripheralConnection:activityPeripheral];
 }
@@ -258,11 +307,38 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
 #pragma mark CBCentralManagerDelegate
 - (void)centralManagerDidUpdateState:(nonnull CBCentralManager *)central {
     NSLog(@"Status of CoreBluetooth central manager changed %@",[self centralManagerStateToString:central.state]);
+    if ([self.delegate respondsToSelector:@selector(CentralManagerDidUpdateState:)]) {
+        [self.delegate CentralManagerDidUpdateState:central.state];
+    }
+    if (central.state == CBManagerStatePoweredOn) {
+        if ([self.delegate respondsToSelector:@selector(CentralManagerPoweredOn)]) {
+            [self.delegate CentralManagerPoweredOn];
+        }
+        if (_hasPendingScan) {
+            _hasPendingScan = NO;
+            [central scanForPeripheralsWithServices:_pendingScanServices
+                                            options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@YES}];
+            _pendingScanServices = nil;
+        }
+    } else if (central.state == CBManagerStatePoweredOff ||
+               central.state == CBManagerStateUnauthorized ||
+               central.state == CBManagerStateUnsupported) {
+        activityPeripheral = nil;
+    }
 }
 
 - (void)centralManager:(CBCentralManager *)central willRestoreState:(NSDictionary<NSString *, id> *)dict
 {
-    
+    NSArray<CBPeripheral *> *restoredPeripherals = dict[CBCentralManagerRestoredStatePeripheralsKey];
+    CBPeripheral *restoredPeripheral = restoredPeripherals.firstObject;
+    if (restoredPeripheral) {
+        activityPeripheral = restoredPeripheral;
+        activityPeripheral.delegate = self;
+        _allowAutoReconnect = YES;
+        if (restoredPeripheral.state == CBPeripheralStateConnected) {
+            [restoredPeripheral discoverServices:nil];
+        }
+    }
 }
 - (void)centralManager:(CBCentralManager *)central didDiscoverPeripheral:(CBPeripheral *)peripheral advertisementData:(NSDictionary<NSString *, id> *)advertisementData RSSI:(NSNumber *)RSSI
 {
@@ -270,12 +346,17 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
 }
 - (void)centralManager:(CBCentralManager *)central didConnectPeripheral:(CBPeripheral *)peripheral
 {
+    activityPeripheral = peripheral;
+    peripheral.delegate = self;
     [peripheral discoverServices:nil];
     [self.delegate ConnectSuccessfully];
 }
     
 - (void)centralManager:(CBCentralManager *)central didFailToConnectPeripheral:(CBPeripheral *)peripheral error:(nullable NSError *)error
 {
+    if (activityPeripheral && [activityPeripheral.identifier isEqual:peripheral.identifier]) {
+        activityPeripheral = nil;
+    }
     [self.delegate ConnectFailedWithError:error];
 }
 - (void)centralManager:(CBCentralManager *)central didDisconnectPeripheral:(CBPeripheral *)peripheral error:(nullable NSError *)error
@@ -283,11 +364,25 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
     
     NSString * strError = [NSString stringWithFormat:@"设备%@蓝牙断开连接:%@",peripheral.name,error.description];
     writeLogs(strError, @"Ble SDK Demo.txt");
-    if(error)
-    {
+    BOOL shouldReconnect = (error != nil &&
+                            _allowAutoReconnect &&
+                            activityPeripheral &&
+                            [activityPeripheral.identifier isEqual:peripheral.identifier] &&
+                            _pendingPeripheralToConnect == nil);
+
+    if (activityPeripheral && [activityPeripheral.identifier isEqual:peripheral.identifier]) {
+        activityPeripheral = nil;
+    }
+
+    if (_pendingPeripheralToConnect) {
+        CBPeripheral *nextPeripheral = _pendingPeripheralToConnect;
+        _pendingPeripheralToConnect = nil;
+        [self connectDevice:nextPeripheral];
+    } else if (shouldReconnect) {
         [central connectPeripheral:peripheral options:nil];
     }
-     [self.delegate Disconnect:error];
+
+    [self.delegate Disconnect:error];
 }
 #pragma mark CBPeripheralDelegate
 - (void)peripheralDidUpdateName:(CBPeripheral *)peripheral

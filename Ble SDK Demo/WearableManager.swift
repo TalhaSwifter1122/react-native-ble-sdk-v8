@@ -51,6 +51,7 @@ final class WearableManager: NSObject {
     // MARK: Public callbacks  (set these from your ViewControllers / Services)
     // --------------------------------------------------------
     var onConnectionStateChanged:   ((WearableConnectionState) -> Void)?
+    var onBluetoothStateChanged:     ((String) -> Void)?
     var onPeripheralFound:          ((CBPeripheral, NSNumber) -> Void)?
 
     // Health data callbacks – each fires when a full batch is ready
@@ -80,6 +81,10 @@ final class WearableManager: NSObject {
     // --------------------------------------------------------
     private let service  = "FFF0"
     private let sendChar = "FFF6"
+    private let defaults = UserDefaults.standard
+    private let lastPeripheralUUIDKey = "WearableManager.lastPeripheralUUID"
+    private let autoReconnectEnabledKey = "WearableManager.autoReconnectEnabled"
+    private var isAutoReconnectScanning = false
 
     private func write(_ data: NSData) {
         guard let peripheral = NewBle.sharedManager()?.activityPeripheral else { return }
@@ -95,9 +100,15 @@ final class WearableManager: NSObject {
     // MARK: Public API – BLE scanning / connection
     // --------------------------------------------------------
 
+    func prepareForAutoReconnect() {
+        configureBLEDelegate()
+        if NewBle.sharedManager()?.centralManage?.state == .poweredOn {
+            restoreSavedConnectionIfNeeded()
+        }
+    }
+
     func startScan() {
-        NewBle.sharedManager()?.delegate = self
-        NewBle.sharedManager()?.setUpCentralManager()
+        configureBLEDelegate()
         NewBle.sharedManager()?.startScanning(withServices: nil)
         connectionState = .scanning
     }
@@ -110,11 +121,23 @@ final class WearableManager: NSObject {
     }
 
     func connect(to peripheral: CBPeripheral) {
+        connect(to: peripheral, rememberForAutoReconnect: true)
+    }
+
+    private func connect(to peripheral: CBPeripheral, rememberForAutoReconnect: Bool) {
+        configureBLEDelegate()
+        if rememberForAutoReconnect {
+            defaults.set(peripheral.identifier.uuidString, forKey: lastPeripheralUUIDKey)
+            defaults.set(true, forKey: autoReconnectEnabledKey)
+        }
         connectionState = .connecting
         NewBle.sharedManager()?.connectDevice(peripheral)
     }
 
     func disconnect() {
+        defaults.set(false, forKey: autoReconnectEnabledKey)
+        isAutoReconnectScanning = false
+        NewBle.sharedManager()?.stopscan()
         NewBle.sharedManager()?.disconnect()
     }
 
@@ -197,6 +220,76 @@ final class WearableManager: NSObject {
 
     func discoveredPeripheral(withId uuid: String) -> CBPeripheral? {
         scannedPeripherals[uuid]
+    }
+
+    // --------------------------------------------------------
+    // MARK: Private – reconnect helpers
+    // --------------------------------------------------------
+
+    private func configureBLEDelegate() {
+        NewBle.sharedManager()?.delegate = self
+        NewBle.sharedManager()?.setUpCentralManager()
+    }
+
+    private var shouldAutoReconnect: Bool {
+        defaults.bool(forKey: autoReconnectEnabledKey)
+    }
+
+    private var savedPeripheralUUID: String? {
+        defaults.string(forKey: lastPeripheralUUIDKey)
+    }
+
+    private func restoreSavedConnectionIfNeeded() {
+        guard shouldAutoReconnect else { return }
+        guard connectionState != .connected && connectionState != .connecting else { return }
+        guard let central = NewBle.sharedManager()?.centralManage, central.state == .poweredOn else {
+            configureBLEDelegate()
+            return
+        }
+
+        let serviceUUIDs = [CBUUID(string: service)]
+        let connected = NewBle.sharedManager()?.retrieveConnectedPeripherals(withServices: serviceUUIDs) as? [CBPeripheral] ?? []
+        if let peripheral = preferredPeripheral(from: connected) {
+            isAutoReconnectScanning = false
+            scannedPeripherals[peripheral.identifier.uuidString] = peripheral
+            connect(to: peripheral, rememberForAutoReconnect: false)
+            return
+        }
+
+        if let savedUUID = savedPeripheralUUID, let uuid = UUID(uuidString: savedUUID) {
+            let known = central.retrievePeripherals(withIdentifiers: [uuid])
+            if let peripheral = known.first {
+                isAutoReconnectScanning = false
+                scannedPeripherals[peripheral.identifier.uuidString] = peripheral
+                connect(to: peripheral, rememberForAutoReconnect: false)
+                return
+            }
+        }
+
+        isAutoReconnectScanning = true
+        connectionState = .connecting
+        NewBle.sharedManager()?.startScanning(withServices: nil)
+    }
+
+    private func preferredPeripheral(from peripherals: [CBPeripheral]) -> CBPeripheral? {
+        guard !peripherals.isEmpty else { return nil }
+        guard let savedUUID = savedPeripheralUUID else { return peripherals.first }
+        return peripherals.first {
+            $0.identifier.uuidString.caseInsensitiveCompare(savedUUID) == .orderedSame
+        } ?? peripherals.first
+    }
+
+    private func bluetoothStateName(_ state: Int) -> String {
+        guard let managerState = CBManagerState(rawValue: state) else { return "unknown" }
+        switch managerState {
+        case .unknown: return "unknown"
+        case .resetting: return "resetting"
+        case .unsupported: return "unsupported"
+        case .unauthorized: return "unauthorized"
+        case .poweredOff: return "poweredOff"
+        case .poweredOn: return "poweredOn"
+        @unknown default: return "unknown"
+        }
     }
 
     // --------------------------------------------------------
@@ -374,6 +467,11 @@ final class WearableManager: NSObject {
 extension WearableManager: MyBleDelegate {
 
     func connectSuccessfully() {
+        if let peripheral = NewBle.sharedManager()?.activityPeripheral {
+            defaults.set(peripheral.identifier.uuidString, forKey: lastPeripheralUUIDKey)
+            defaults.set(true, forKey: autoReconnectEnabledKey)
+        }
+        isAutoReconnectScanning = false
         connectionState = .connected
         // Sync device clock automatically on connect
         var t = MyDeviceTime_X3()
@@ -389,18 +487,49 @@ extension WearableManager: MyBleDelegate {
     }
 
     func disconnect(_ error: Error?) {
-        connectionState = .disconnected
+        if error != nil && shouldAutoReconnect {
+            connectionState = .connecting
+        } else {
+            isAutoReconnectScanning = false
+            connectionState = .disconnected
+        }
     }
 
     func scan(with peripheral: CBPeripheral,
               advertisementData: [String: Any],
               rssi RSSI: NSNumber) {
         scannedPeripherals[peripheral.identifier.uuidString] = peripheral
+        if isAutoReconnectScanning,
+           let savedUUID = savedPeripheralUUID,
+           peripheral.identifier.uuidString.caseInsensitiveCompare(savedUUID) == .orderedSame {
+            isAutoReconnectScanning = false
+            connect(to: peripheral, rememberForAutoReconnect: false)
+            return
+        }
         onPeripheralFound?(peripheral, RSSI)
     }
 
-    func connectFailed(withError error: Error?) {
+    func connectFailedWithError(_ error: Error?) {
+        isAutoReconnectScanning = false
         connectionState = .disconnected
+    }
+
+    func centralManagerPoweredOn() {
+        onBluetoothStateChanged?("poweredOn")
+        restoreSavedConnectionIfNeeded()
+    }
+
+    func centralManagerDidUpdateState(_ state: Int) {
+        let stateName = bluetoothStateName(state)
+        onBluetoothStateChanged?(stateName)
+        if stateName == "poweredOn" {
+            restoreSavedConnectionIfNeeded()
+        } else if stateName == "poweredOff" ||
+                    stateName == "unauthorized" ||
+                    stateName == "unsupported" {
+            isAutoReconnectScanning = false
+            connectionState = .disconnected
+        }
     }
 
     func enableCommunicate() {

@@ -25,6 +25,7 @@ final class WearableRNModule: RCTEventEmitter {
     override func supportedEvents() -> [String]! {
         return [
             "onConnectionStateChanged",   // "idle"|"scanning"|"connecting"|"connected"|"disconnected"
+            "onBluetoothStateChanged",     // "unknown"|"resetting"|"unsupported"|"unauthorized"|"poweredOff"|"poweredOn"
             "onDeviceFound",              // { id, name, rssi }
 
             // Universal BLE scanner (any peripheral)
@@ -55,6 +56,10 @@ final class WearableRNModule: RCTEventEmitter {
         mgr.onConnectionStateChanged = { [weak self] state in
             self?.sendEvent(withName: "onConnectionStateChanged",
                             body: state.rawStringValue)
+        }
+
+        mgr.onBluetoothStateChanged = { [weak self] state in
+            self?.sendEvent(withName: "onBluetoothStateChanged", body: state)
         }
 
         mgr.onPeripheralFound = { [weak self] peripheral, rssi in
@@ -145,6 +150,8 @@ final class WearableRNModule: RCTEventEmitter {
         universal.onError = { [weak self] message in
             self?.sendEvent(withName: "onUniversalError", body: ["message": message])
         }
+
+        mgr.prepareForAutoReconnect()
     }
 
     @objc override func stopObserving() {

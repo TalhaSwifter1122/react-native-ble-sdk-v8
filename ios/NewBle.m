@@ -47,7 +47,11 @@
     // Guard: only create the manager once. Creating multiple instances causes
     // "API MISUSE: can only accept this command while in the powered on state".
     if (CentralManage == nil) {
-        CentralManage = [[CBCentralManager alloc] initWithDelegate:self queue:nil];
+        CentralManage = [[CBCentralManager alloc]
+            initWithDelegate:self
+                       queue:nil
+                     options:@{CBCentralManagerOptionRestoreIdentifierKey:
+                                   @"com.reactnativeblesdkv8.central"}];
     } else {
         CentralManage.delegate = self;
     }
@@ -310,6 +314,9 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
 #pragma mark CBCentralManagerDelegate
 - (void)centralManagerDidUpdateState:(nonnull CBCentralManager *)central {
     NSLog(@"Status of CoreBluetooth central manager changed %@",[self centralManagerStateToString:central.state]);
+    if ([self.delegate respondsToSelector:@selector(CentralManagerDidUpdateState:)]) {
+        [self.delegate CentralManagerDidUpdateState:central.state];
+    }
     if (central.state == CBManagerStatePoweredOn) {
         // Notify the delegate (RNBleSdkV8) that BLE is ready
         if ([self.delegate respondsToSelector:@selector(CentralManagerPoweredOn)]) {
@@ -322,12 +329,25 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
                                             options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@YES}];
             _pendingScanServices = nil;
         }
+    } else if (central.state == CBManagerStatePoweredOff ||
+               central.state == CBManagerStateUnauthorized ||
+               central.state == CBManagerStateUnsupported) {
+        activityPeripheral = nil;
     }
 }
 
 - (void)centralManager:(CBCentralManager *)central willRestoreState:(NSDictionary<NSString *, id> *)dict
 {
-    
+    NSArray<CBPeripheral *> *restoredPeripherals = dict[CBCentralManagerRestoredStatePeripheralsKey];
+    CBPeripheral *restoredPeripheral = restoredPeripherals.firstObject;
+    if (restoredPeripheral) {
+        activityPeripheral = restoredPeripheral;
+        activityPeripheral.delegate = self;
+        _allowAutoReconnect = YES;
+        if (restoredPeripheral.state == CBPeripheralStateConnected) {
+            [restoredPeripheral discoverServices:nil];
+        }
+    }
 }
 - (void)centralManager:(CBCentralManager *)central didDiscoverPeripheral:(CBPeripheral *)peripheral advertisementData:(NSDictionary<NSString *, id> *)advertisementData RSSI:(NSNumber *)RSSI
 {
@@ -335,12 +355,17 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
 }
 - (void)centralManager:(CBCentralManager *)central didConnectPeripheral:(CBPeripheral *)peripheral
 {
+    activityPeripheral = peripheral;
+    peripheral.delegate = self;
     [peripheral discoverServices:nil];
     [self.delegate ConnectSuccessfully];
 }
     
 - (void)centralManager:(CBCentralManager *)central didFailToConnectPeripheral:(CBPeripheral *)peripheral error:(nullable NSError *)error
 {
+    if (activityPeripheral && [activityPeripheral.identifier isEqual:peripheral.identifier]) {
+        activityPeripheral = nil;
+    }
     [self.delegate ConnectFailedWithError:error];
 }
 - (void)centralManager:(CBCentralManager *)central didDisconnectPeripheral:(CBPeripheral *)peripheral error:(nullable NSError *)error
