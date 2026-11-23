@@ -179,6 +179,9 @@ RCT_EXPORT_METHOD(connect:(NSString *)peripheralUUID) {
 
 RCT_EXPORT_METHOD(disconnect) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        // Stop any pending auto-connect scan initiated by connect(UUID).
+        _pendingConnectUUID = nil;
+        [[NewBle sharedManager] Stopscan];
         [[NewBle sharedManager] Disconnect];
     });
 }

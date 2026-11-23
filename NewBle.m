@@ -224,8 +224,18 @@ static void (^BLE_Block_Receive)(Byte* _Nullable buf,int length);
 {
     _allowAutoReconnect = NO;
     _pendingPeripheralToConnect = nil;
-    if(activityPeripheral)
-    [CentralManage cancelPeripheralConnection:activityPeripheral];
+    CBPeripheral *peripheral = activityPeripheral;
+    if (peripheral && (peripheral.state == CBPeripheralStateConnected ||
+                       peripheral.state == CBPeripheralStateConnecting)) {
+        [CentralManage cancelPeripheralConnection:peripheral];
+        return;
+    }
+
+    // CoreBluetooth may not deliver didDisconnectPeripheral if disconnect is
+    // requested before a connection attempt starts (or after it already ended).
+    // Clear the stale reference and acknowledge the requested stop immediately.
+    activityPeripheral = nil;
+    [self.delegate Disconnect:nil];
 }
 
 -(void)enable
