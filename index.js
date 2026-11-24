@@ -68,7 +68,7 @@ export const BleEvents = {
     /** A BLE peripheral was found during scan */
     DEVICE_FOUND: 'BleDeviceFound',
     SCAN_RESULT: 'BleDeviceFound',
-    LOG: isAndroid ? 'BleLog' : 'BleData',
+    LOG: isAndroid ? 'BleLog' : 'BleUploadStatus',
     /** Successfully connected and communication enabled */
     CONNECTED: 'BleConnected',
     /** Device disconnected */
