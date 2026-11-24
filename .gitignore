@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 *.tgz
+
+/android/build/
+/android/.gradle/

@@ -3,11 +3,10 @@
  *
  * Native-driven server upload control.
  *
- * API calls are performed by the iOS native SDK bridge (RNBleSdkV8.m),
- * not by the React Native app layer.
+ * The iOS and Android native SDK bridges own HTTP requests.
  */
 
-import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
+import { NativeEventEmitter, NativeModules } from 'react-native';
 import {
     enrichBlePayloadWithSleepContext,
     resetSleepContextState,
@@ -39,10 +38,6 @@ function _ensureNativeSupport() {
 
     if (!native) {
         throw new Error('[BleSDK] RNBleSdkV8 native module is not linked');
-    }
-
-    if (Platform.OS !== 'ios') {
-        console.warn('[BleSDK] Native server upload is currently implemented for iOS only');
     }
 
     return native;

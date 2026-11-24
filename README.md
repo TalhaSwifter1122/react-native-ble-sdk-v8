@@ -1,8 +1,6 @@
 # react-native-ble-sdk-v8
 
-React Native iOS wrapper for the V8 BLE wearable SDK.  
-Wraps the pre-compiled `libBleSDK.a` so the React Native team can install it
-exactly like any other npm library.
+React Native SDK for the V8 BLE wearable on iOS and Android.
 
 ---
 
@@ -26,6 +24,17 @@ Add the following permission to `ios/YourApp/Info.plist`:
 <key>NSBluetoothAlwaysUsageDescription</key>
 <string>This app uses Bluetooth to communicate with your wearable device.</string>
 ```
+
+On Android, rebuild the app after installation so React Native autolinks the
+SDK. The package includes the Android BLE vendor library. `startScan()`
+requests Nearby Devices permissions on Android 12+ and location permission on
+older versions.
+
+Android reports a connection after service discovery and notification setup.
+It reconnects after an unexpected link loss while the SDK is active.
+An explicit disconnect cancels discovery and reconnect attempts. A scan
+started while Bluetooth is off can resume when Bluetooth is enabled unless
+it was stopped in the meantime. Active scans expire after 20 seconds.
 
 ---
 
@@ -87,10 +96,15 @@ BleSdk.startScan();
 
 ## Native Server Upload
 
-`configureServer()` and `startAutoUpload()` are thin JavaScript controls for a
-native upload pipeline. The React Native app does not need to listen for
-`BleEvents.DATA` and call `fetch`; once auto-upload is enabled, `RNBleSdkV8.m`
-posts each parsed packet directly from the SDK layer.
+Call `configureServer()` and `startAutoUpload()` on either platform. The SDK
+posts data automatically using the same top-level `2.0-native` request format.
+The native bridge owns packet processing and HTTP on both platforms.
+Android sends on a dedicated OkHttp worker pool and reports progress through
+the same upload-status callbacks. Android requires API level 26 or later.
+Use the configured SDK uploader as the single sender for this stream.
+
+Use an HTTPS endpoint for Android production builds. Android may block the
+existing HTTP demo endpoint unless the host app explicitly allows it.
 
 The SDK ships with these native defaults:
 
@@ -207,10 +221,10 @@ resetSleepContextState();
 setAutoUploadSleepContextEnabled(false);
 ```
 
-Auto-upload note:
-- `startAutoUpload()` sends data directly from the iOS SDK bridge.
-- JS sleep helpers are still available for UI-side context, but native
-  auto-upload does not require a JS event listener or RN `fetch`.
+Auto-upload works on both platforms without a host-app upload listener.
+Android's vendor SDK exposes a shared SpO₂ history request and does not
+provide the iOS clear-all-history command. Android reports the latter through
+`BleEvents.CONNECT_FAILED` with an unsupported-command message.
 
 Mental wellness note:
 - Enriched payloads now include `mentalWellness` with `stressScore`, `stressLevel`, `anxietyScore`, and `anxietyLevel`.

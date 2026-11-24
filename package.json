@@ -1,12 +1,13 @@
 {
     "name": "react-native-ble-sdk-v8",
     "version": "1.0.0",
-    "description": "React Native wrapper for BleSDK V8 wearable device",
+    "description": "React Native iOS and Android SDK for the V8 wearable",
     "main": "index.js",
     "files": [
         "index.js",
         "src/",
         "ios/",
+        "android/",
         "react-native-ble-sdk-v8.podspec"
     ],
     "scripts": {

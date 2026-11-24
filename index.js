@@ -1,4 +1,4 @@
-import { NativeModules, NativeEventEmitter, Platform } from 'react-native';
+import { NativeModules, NativeEventEmitter, PermissionsAndroid, Platform } from 'react-native';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Server upload & sleep logic — re-exported so the RN app only needs one import
@@ -41,9 +41,21 @@ const { RNBleSdkV8 } = NativeModules;
 if (!RNBleSdkV8) {
     throw new Error(
         'RNBleSdkV8 native module is not linked. ' +
-        'Run `cd ios && pod install` then rebuild the app.'
+        (Platform.OS === 'ios' ? 'Run `cd ios && pod install` then rebuild the app.' : 'Rebuild the Android app with the SDK linked.')
     );
 }
+
+const isAndroid = Platform.OS === 'android';
+let scanGeneration = 0;
+
+const androidEvents = {
+    BleDeviceFound: 'RNBleSdkV8.scanResult',
+    BleConnected: 'RNBleSdkV8.connected',
+    BleDisconnected: 'RNBleSdkV8.disconnected',
+    BleConnectFailed: 'RNBleSdkV8.error',
+    BleData: 'RNBleSdkV8.data',
+    BlePowerStateChanged: 'RNBleSdkV8.state',
+};
 
 const eventEmitter = new NativeEventEmitter(RNBleSdkV8);
 
@@ -77,7 +89,25 @@ export const BleEvents = {
  * @param {Function} callback Receives the event payload
  */
 export function addBleListener(eventName, callback) {
-    return eventEmitter.addListener(eventName, callback);
+    if (!isAndroid || !androidEvents[eventName]) return eventEmitter.addListener(eventName, callback);
+    return eventEmitter.addListener(androidEvents[eventName], payload => {
+        switch (eventName) {
+            case BleEvents.DATA:
+                if (payload?.dataType !== undefined) callback(payload);
+                break;
+            case BleEvents.CONNECTED:
+                callback({ ...payload, connected: true });
+                break;
+            case BleEvents.DISCONNECTED:
+                callback({ ...payload, connected: false });
+                break;
+            case BleEvents.CONNECT_FAILED:
+                callback({ ...payload, error: payload.message });
+                break;
+            default:
+                callback(payload);
+        }
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,11 +124,26 @@ export function addBleListener(eventName, callback) {
  *                               Leave empty to see every BLE device in range.
  */
 export function startScan(nameFilter = '') {
-    RNBleSdkV8.startScan(nameFilter || null);
+    if (!isAndroid) return RNBleSdkV8.startScan(nameFilter || null);
+    const generation = ++scanGeneration;
+    const permissions = Platform.Version >= 31
+        ? [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT]
+        : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
+    return PermissionsAndroid.requestMultiple(permissions).then(result => {
+        if (generation !== scanGeneration) return;
+        if (permissions.every(permission => result[permission] === PermissionsAndroid.RESULTS.GRANTED)) {
+            RNBleSdkV8.startScan(nameFilter || null);
+        } else {
+            eventEmitter.emit(androidEvents.BleConnectFailed, { message: 'Bluetooth scan permission denied' });
+        }
+    }).catch(error => {
+        if (generation === scanGeneration) eventEmitter.emit(androidEvents.BleConnectFailed, { message: error.message });
+    });
 }
 
 /** Stop an ongoing BLE scan. */
 export function stopScan() {
+    scanGeneration++;
     RNBleSdkV8.stopScan();
 }
 
@@ -111,11 +156,14 @@ export function stopScan() {
  * @param {string} peripheralUUID  UUID from the DEVICE_FOUND event
  */
 export function connect(peripheralUUID) {
+    scanGeneration++;
+    if (isAndroid) return RNBleSdkV8.connect(peripheralUUID, null);
     RNBleSdkV8.connect(peripheralUUID);
 }
 
 /** Disconnect from the currently connected device. */
 export function disconnect() {
+    scanGeneration++;
     RNBleSdkV8.disconnect();
 }
 
@@ -154,7 +202,12 @@ export function getStepGoal() { RNBleSdkV8.getStepGoal(); }
 export function getMacAddress() { RNBleSdkV8.getMacAddress(); }
 
 function callHistoryCommand(nativeMethod, mode = 0, startDate = null) {
-    const iso = startDate instanceof Date ? startDate.toISOString() : null;
+    let iso = startDate instanceof Date ? startDate.toISOString() : null;
+    if (iso && isAndroid) {
+        const pad = value => String(value).padStart(2, '0');
+        iso = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())} ` +
+            `${pad(startDate.getHours())}:${pad(startDate.getMinutes())}:${pad(startDate.getSeconds())}`;
+    }
     nativeMethod(mode, iso);
 }
 
