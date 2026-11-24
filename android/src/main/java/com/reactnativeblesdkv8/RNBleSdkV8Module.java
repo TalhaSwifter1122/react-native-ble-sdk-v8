@@ -369,7 +369,10 @@ public class RNBleSdkV8Module extends ReactContextBaseJavaModule
             pendingConnect = () -> connectInternal(target, deviceName);
             return;
         }
-        if (bluetoothGatt != null && target.equals(connectedAddress)) return;
+        if (bluetoothGatt != null && target.equals(connectedAddress)) {
+            if (connected) emitConnectedDevice();
+            return;
+        }
 
         mainHandler.removeCallbacks(reconnectTask);
         closeGatt(connected, false);
@@ -1113,6 +1116,13 @@ public class RNBleSdkV8Module extends ReactContextBaseJavaModule
         connected = true;
         saveLastDevice(connectedAddress, connectedName);
         reconnectAttempts = 0;
+        emitConnectedDevice();
+        emitState("connected");
+        if (uploader.isEnabled()) setRealtimeData(1);
+        flushCommandQueue();
+    }
+
+    private void emitConnectedDevice() {
         WritableMap payload = Arguments.createMap();
         payload.putString("uuid", connectedAddress);
         payload.putString("address", connectedAddress);
@@ -1120,9 +1130,6 @@ public class RNBleSdkV8Module extends ReactContextBaseJavaModule
             payload.putString("name", connectedName);
         }
         emitEvent("RNBleSdkV8.connected", payload);
-        emitState("connected");
-        if (uploader.isEnabled()) setRealtimeData(1);
-        flushCommandQueue();
     }
 
     private void emitState(String state) {

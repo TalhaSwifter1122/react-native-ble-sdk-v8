@@ -47,9 +47,11 @@ if (!RNBleSdkV8) {
 
 const isAndroid = Platform.OS === 'android';
 let scanGeneration = 0;
+let permissionRequest;
 
 const androidEvents = {
     BleDeviceFound: 'RNBleSdkV8.scanResult',
+    BleLog: 'RNBleSdkV8.log',
     BleConnected: 'RNBleSdkV8.connected',
     BleDisconnected: 'RNBleSdkV8.disconnected',
     BleConnectFailed: 'RNBleSdkV8.error',
@@ -65,6 +67,8 @@ const eventEmitter = new NativeEventEmitter(RNBleSdkV8);
 export const BleEvents = {
     /** A BLE peripheral was found during scan */
     DEVICE_FOUND: 'BleDeviceFound',
+    SCAN_RESULT: 'BleDeviceFound',
+    LOG: isAndroid ? 'BleLog' : 'BleData',
     /** Successfully connected and communication enabled */
     CONNECTED: 'BleConnected',
     /** Device disconnected */
@@ -89,20 +93,32 @@ export const BleEvents = {
  * @param {Function} callback Receives the event payload
  */
 export function addBleListener(eventName, callback) {
-    if (!isAndroid || !androidEvents[eventName]) return eventEmitter.addListener(eventName, callback);
-    return eventEmitter.addListener(androidEvents[eventName], payload => {
+    if (!eventName || typeof callback !== 'function') return { remove() {} };
+    const nativeEvent = isAndroid ? androidEvents[eventName] || eventName : eventName;
+    return eventEmitter.addListener(nativeEvent, payload => {
         switch (eventName) {
-            case BleEvents.DATA:
-                if (payload?.dataType !== undefined) callback(payload);
+            case BleEvents.DEVICE_FOUND:
+            case BleEvents.CONNECTED: {
+                const address = payload?.address || payload?.uuid;
+                const device = address && !payload?.address ? { ...payload, address } : payload;
+                callback(isAndroid && eventName === BleEvents.CONNECTED ? { ...device, connected: true } : device);
                 break;
-            case BleEvents.CONNECTED:
-                callback({ ...payload, connected: true });
-                break;
+            }
             case BleEvents.DISCONNECTED:
-                callback({ ...payload, connected: false });
+                callback(isAndroid ? { ...payload, connected: false } : payload);
                 break;
-            case BleEvents.CONNECT_FAILED:
-                callback({ ...payload, error: payload.message });
+            case BleEvents.CONNECT_FAILED: {
+                const message = payload?.message ?? payload?.error;
+                callback({ ...payload, message, error: payload?.error ?? message });
+                break;
+            }
+            case BleEvents.DATA:
+                if (isAndroid && payload?.dataType === undefined) return;
+                if (payload?.data?.TempData == null && payload?.data?.temperature != null) {
+                    callback({ ...payload, data: { ...payload.data, TempData: payload.data.temperature } });
+                } else {
+                    callback(payload);
+                }
                 break;
             default:
                 callback(payload);
@@ -126,19 +142,30 @@ export function addBleListener(eventName, callback) {
 export function startScan(nameFilter = '') {
     if (!isAndroid) return RNBleSdkV8.startScan(nameFilter || null);
     const generation = ++scanGeneration;
-    const permissions = Platform.Version >= 31
-        ? [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT]
-        : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
-    return PermissionsAndroid.requestMultiple(permissions).then(result => {
+    return requestBlePermissions().then(granted => {
         if (generation !== scanGeneration) return;
-        if (permissions.every(permission => result[permission] === PermissionsAndroid.RESULTS.GRANTED)) {
+        if (granted) {
             RNBleSdkV8.startScan(nameFilter || null);
         } else {
             eventEmitter.emit(androidEvents.BleConnectFailed, { message: 'Bluetooth scan permission denied' });
         }
-    }).catch(error => {
-        if (generation === scanGeneration) eventEmitter.emit(androidEvents.BleConnectFailed, { message: error.message });
     });
+}
+
+/** Request the scan and connection permissions required by Android. */
+export async function requestBlePermissions() {
+    if (!isAndroid) return true;
+    if (permissionRequest) return permissionRequest;
+
+    const permissions = Platform.Version >= 31
+        ? [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT]
+        : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
+    permissionRequest = Promise.resolve()
+        .then(() => PermissionsAndroid.requestMultiple(permissions))
+        .then(result => permissions.every(permission => result[permission] === PermissionsAndroid.RESULTS.GRANTED))
+        .catch(() => false)
+        .finally(() => { permissionRequest = undefined; });
+    return permissionRequest;
 }
 
 /** Stop an ongoing BLE scan. */
@@ -155,9 +182,9 @@ export function stopScan() {
  * Connect to a peripheral by its UUID string.
  * @param {string} peripheralUUID  UUID from the DEVICE_FOUND event
  */
-export function connect(peripheralUUID) {
+export function connect(peripheralUUID, deviceName = null) {
     scanGeneration++;
-    if (isAndroid) return RNBleSdkV8.connect(peripheralUUID, null);
+    if (isAndroid) return RNBleSdkV8.connect(peripheralUUID, deviceName || null);
     RNBleSdkV8.connect(peripheralUUID);
 }
 
@@ -316,6 +343,7 @@ import {
 export default {
     BleEvents,
     addBleListener,
+    requestBlePermissions,
     startScan,
     stopScan,
     connect,
